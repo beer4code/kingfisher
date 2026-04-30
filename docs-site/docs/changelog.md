@@ -7,7 +7,10 @@ description: "Kingfisher release history: new features, rules, bug fixes, and im
 
 All notable changes to this project will be documented in this file.
 
-## [unreleased v1.98.0]
+## [unreleased v1.99.0]
+- `--include-contributors` now respects `--github-repo-type` when enumerating contributor-owned repositories: by default contributor forks are excluded (matching the existing `Source` default), previously they were always included regardless of the flag. Added a new `--github-repo-type all` option to opt into the prior behavior of scanning both source and fork repos for contributors, organizations, and users.
+
+## [v1.98.0]
 - Added first-class **Postman** scanning target: new `kingfisher scan postman` subcommand (and equivalent `--postman-*` flags) fetches workspaces, collections, and environments via the Postman API and scans them for hard-coded credentials in request `auth` blocks, pre-request/test scripts, saved example responses, and — notably — `secret`-typed environment variables, which the API returns in plaintext despite the UI mask. Selectors: `--workspace`, `--collection`, `--environment`, `--all`, with optional `--include-mocks-monitors` and `--api-url` for self-hosted endpoints. Authenticates via `KF_POSTMAN_TOKEN` (or `POSTMAN_API_KEY`) sent as `X-Api-Key`; honors `X-RateLimit-RetryAfter` on 429s. Findings link back to `https://go.postman.co/...` URLs in reports.
 - Fixed [#359](https://github.com/mongodb/kingfisher/issues/359): added `kingfisher.github.9` to detect the new ~520-character stateless GitHub App installation token format (`ghs_<APP_ID>_<JWT>`). The legacy 36-character `ghs_` rule (`kingfisher.github.5`) is retained for older / GHES-issued tokens that are still in circulation. 
 - Added provider endpoint overrides for validation and revocation via global `--endpoint PROVIDER=URL` and `--endpoint-config FILE`, with built-in support for self-hosted GitHub, GitLab, Gitea, Jira, Confluence, and Artifactory instances.

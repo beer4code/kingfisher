@@ -30,6 +30,7 @@ struct GitHubContributor {
 #[derive(Deserialize)]
 struct GitHubRepo {
     clone_url: String,
+    fork: bool,
 }
 
 #[derive(Debug)]
@@ -173,6 +174,7 @@ pub async fn enumerate_contributor_repo_urls(
     exclude_repos: &[String],
     repo_clone_limit: Option<usize>,
     progress_enabled: bool,
+    repo_filter: RepoType,
 ) -> Result<Vec<String>> {
     let (_, owner, repo) = parse_repo(repo_url).context("invalid GitHub repo URL")?;
     let exclude_set = build_exclude_matcher(exclude_repos);
@@ -272,6 +274,14 @@ pub async fn enumerate_contributor_repo_urls(
                     if total_repo_count >= total_limit {
                         break;
                     }
+                }
+                let excluded_by_repo_type = match repo_filter {
+                    RepoType::Source => repo.fork,
+                    RepoType::Fork => !repo.fork,
+                    RepoType::All => false,
+                };
+                if excluded_by_repo_type {
+                    continue;
                 }
                 if should_exclude_repo(&repo.clone_url, &exclude_set) {
                     continue;

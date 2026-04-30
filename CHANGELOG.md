@@ -2,6 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.99.0]
+- `--include-contributors` now respects `--github-repo-type` when enumerating contributor-owned repositories: by default contributor forks are excluded (matching the existing `Source` default), previously they were always included regardless of the flag. Added a new `--github-repo-type all` option to opt into the prior behavior of scanning both source and fork repos for contributors, organizations, and users.
+
 ## [v1.98.0]
 - Bounded disk usage for large multi-repo scans (e.g. `--include-contributors --repo-artifacts` against orgs with thousands of repos): cloning, artifact fetching, and scanning now run concurrently through bounded channels, and each cloned repo is removed from the temp directory as soon as its scan completes. On-disk footprint stays roughly `O(num_jobs)` regardless of total repo count instead of growing without bound. `--keep-clones` and `--git-clone-dir` opt out of the per-repo cleanup as before.
 - Parallelized `--repo-artifacts` fetching with `buffer_unordered(num_jobs)` so issue/PR/wiki API calls run concurrently and stream into the scan loop, replacing the previous per-repo serial loop that delayed the start of scanning by hours on large fan-outs.

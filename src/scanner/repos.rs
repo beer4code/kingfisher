@@ -227,6 +227,7 @@ pub async fn enumerate_github_repos(
                 &args.input_specifier_args.github_exclude,
                 args.input_specifier_args.repo_clone_limit,
                 global_args.use_progress(),
+                args.input_specifier_args.github_repo_type.into(),
             )
             .await
             {
