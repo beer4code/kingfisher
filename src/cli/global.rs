@@ -79,7 +79,7 @@ pub enum Command {
     Revoke(RevokeArgs),
 
     /// Map a cloud credential to its identity, permissions, and blast radius
-    #[command(name = "access-map", alias = "access_map")]
+    #[command(name = "access-map", aliases = ["access_map", "blast-radius", "blast_radius"])]
     AccessMap(AccessMapArgs),
 
     /// View Kingfisher JSON/JSONL reports in a local web UI

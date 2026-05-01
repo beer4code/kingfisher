@@ -156,4 +156,7 @@ pub enum AccessMapProvider {
     Monday,
     /// Asana
     Asana,
+    /// Pinecone
+    #[clap(alias = "pinecone.io")]
+    Pinecone,
 }

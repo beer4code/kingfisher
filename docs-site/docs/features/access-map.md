@@ -542,8 +542,36 @@ kingfisher access-map asana ./asana.token --format json > asana.access-map.json
 - `token_details.token_type` is classified from the token prefix (`personal_access_token_v2`, `personal_access_token_v1`, `oauth_or_legacy_pat`, or generic `asana_token`).
 - Recorded during `scan --access-map` for validated `kingfisher.asana.3`, `kingfisher.asana.4`, and `kingfisher.asana.5` findings only. `kingfisher.asana.1` is a client ID and `kingfisher.asana.2` is a client secret (requiring the client ID for an OAuth exchange), so neither is used on its own to enumerate user-level resources.
 
+### Pinecone (`pinecone`)
+
+- **Credential**: a single Pinecone API key (read from a file for `kingfisher access-map pinecone <FILE>`).
+- **Token types supported**: API keys accepted by Pinecone's control-plane API with the `Api-Key: <KEY>` header.
+
+Kingfisher performs read-only enumeration against `https://api.pinecone.io` (`X-Pinecone-API-Version: 2025-10`):
+
+- `GET /indexes` for index inventory, dimension, metric, status, deletion-protection state, and serverless cloud/region or pod environment/type
+- `GET /collections` for collection inventory in pod-based projects (gracefully skipped on serverless-only projects)
+
+Severity is High when the token reaches more than 10 indexes, Medium when it reaches one or more indexes (especially with deletion protection disabled) or any collections, and Low for empty projects or validation failures.
+
+#### Standalone example (Pinecone)
+
+```bash
+printf '%s' '62b0dbfe-3489-4b79-b850-34d911527c88' > ./pinecone.key
+kingfisher access-map pinecone ./pinecone.key --format json > pinecone.access-map.json
+```
+
+The `kingfisher blast-radius` and `kingfisher blast_radius` aliases also work for any provider, e.g. `kingfisher blast-radius pinecone ./pinecone.key`.
+
+#### Notes (Pinecone)
+
+- Pinecone API keys do not carry granular scopes; access follows the API key's project-level permissions, which include read and write (upsert/delete) against any index in the project.
+- Indexes with `deletion_protection: enabled` are flagged in the resource record but still accessible for read/write.
+- Recorded during `scan --access-map` (or the `--blast-radius` alias) for validated `kingfisher.pinecone.1` findings.
+
 ## Notes on access-map generation during `scan --access-map`
 
 - Access-map entries are only recorded for **validated** findings.
+- The `--blast-radius` flag is an alias for `--access-map`. The `kingfisher blast-radius <provider>` subcommand is also an alias for `kingfisher access-map <provider>`.
 - Some providers require extra context that Kingfisher infers from the finding context or validation response (for example, Azure DevOps organization name).
-- Validated Hugging Face, Gitea, Bitbucket, Buildkite, Harness, OpenAI, Anthropic, Salesforce, Weights & Biases, Microsoft Teams, monday.com, and Asana credentials discovered during scans with `--access-map` are automatically collected and mapped, matching the existing behavior for other platforms.
+- Validated Hugging Face, Gitea, Bitbucket, Buildkite, Harness, OpenAI, Anthropic, Salesforce, Weights & Biases, Microsoft Teams, monday.com, Asana, and Pinecone credentials discovered during scans with `--access-map` (or `--blast-radius`) are automatically collected and mapped, matching the existing behavior for other platforms.

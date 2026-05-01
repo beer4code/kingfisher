@@ -407,6 +407,14 @@ impl AccessMapCollector {
             .or_insert_with(|| AccessMapRequest::Asana { token: token.to_string(), fingerprint });
     }
 
+    pub fn record_pinecone(&self, token: &str, fingerprint: String) {
+        let key = xxhash_rust::xxh3::xxh3_64(format!("pinecone|{token}").as_bytes());
+        self.inner.entry(key).or_insert_with(|| AccessMapRequest::Pinecone {
+            token: token.to_string(),
+            fingerprint,
+        });
+    }
+
     pub fn into_requests(self) -> Vec<AccessMapRequest> {
         self.inner.iter().map(|entry| entry.value().clone()).collect()
     }
@@ -1471,6 +1479,13 @@ fn maybe_record_access_map(om: &OwnedBlobMatch, collector: Option<&AccessMapColl
                 if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
                     if !value.is_empty() {
                         collector.record_asana(value, fp.clone());
+                    }
+                }
+            }
+            if om.rule.id() == "kingfisher.pinecone.1" {
+                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
+                    if !value.is_empty() {
+                        collector.record_pinecone(value, fp.clone());
                     }
                 }
             }

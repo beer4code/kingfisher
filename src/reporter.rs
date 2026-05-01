@@ -15,7 +15,9 @@ use url::Url;
 use kingfisher_scanner::validation::http_validation::is_auto_provided_request_var;
 
 use crate::{
-    access_map::{AccessSummary, AccessTokenDetails, ProviderMetadata, ResourceExposure},
+    access_map::{
+        AccessSummary, AccessTokenDetails, PermissionSummary, ProviderMetadata, ResourceExposure,
+    },
     blob::BlobMetadata,
     bstring_escape::Escaped,
     cli,
@@ -1254,6 +1256,13 @@ impl DetailsReporter {
 
             groups.sort_by(|a, b| a.resources.cmp(&b.resources));
 
+            let permissions_by_severity = if result.permissions.is_empty() {
+                None
+            } else {
+                Some(result.permissions.clone())
+            };
+            let context = AccessIdentityContext::from_summary(&result.identity);
+
             entries.push(AccessMapEntry {
                 provider: result.cloud.clone(),
                 account: account.clone(),
@@ -1261,6 +1270,8 @@ impl DetailsReporter {
                 token_details: result.token_details.clone(),
                 provider_metadata: result.provider_metadata.clone(),
                 fingerprint: result.fingerprint.clone(),
+                permissions_by_severity,
+                context,
             });
         }
 
@@ -1468,6 +1479,14 @@ pub struct AccessMapEntry {
     pub provider_metadata: Option<ProviderMetadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fingerprint: Option<String>,
+    /// Permissions classified by severity (admin / privilege_escalation / risky / read_only).
+    /// Same shape as PermissionSummary; aggregated across all groups for this identity.
+    /// Absent when the underlying provider didn't classify (e.g., imported reports).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permissions_by_severity: Option<PermissionSummary>,
+    /// Discriminator context to tell duplicate-named identities apart in the UI.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<AccessIdentityContext>,
 }
 
 #[derive(Serialize, JsonSchema, Clone, Debug)]
@@ -1475,6 +1494,48 @@ pub struct AccessMapResourceGroup {
     pub resources: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub permissions: Vec<String>,
+}
+
+/// Optional identity context (project, tenant, account, host) used by the
+/// viewer to disambiguate duplicate-named identities.
+#[derive(Serialize, JsonSchema, Clone, Debug, Default)]
+pub struct AccessIdentityContext {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_type: Option<String>,
+}
+
+impl AccessIdentityContext {
+    fn from_summary(identity: &AccessSummary) -> Option<Self> {
+        let project = identity.project.clone().filter(|s| !s.trim().is_empty());
+        let tenant = identity.tenant.clone().filter(|s| !s.trim().is_empty());
+        let account_id = identity.account_id.clone().filter(|s| !s.trim().is_empty());
+        let id = identity.id.clone();
+        let identity_id = if id.trim().is_empty() { None } else { Some(id) };
+        let access_type = if identity.access_type.trim().is_empty() {
+            None
+        } else {
+            Some(identity.access_type.clone())
+        };
+
+        if project.is_none()
+            && tenant.is_none()
+            && account_id.is_none()
+            && identity_id.is_none()
+            && access_type.is_none()
+        {
+            return None;
+        }
+
+        Some(Self { project, tenant, account_id, identity_id, access_type })
+    }
 }
 
 #[derive(Serialize, JsonSchema, Clone, Debug)]

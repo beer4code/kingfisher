@@ -132,7 +132,7 @@ pub struct ScanArgs {
     /// Map validated cloud credentials to their effective identities; use only when
     /// authorized for the target account because this triggers additional network
     /// requests to determine granted access
-    #[arg(global = true, long, default_value_t = false)]
+    #[arg(global = true, long, alias = "blast-radius", default_value_t = false)]
     pub access_map: bool,
 
     // /// Optional path to write a consolidated access-map HTML report
