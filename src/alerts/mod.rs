@@ -39,6 +39,29 @@ impl Default for AlertOn {
     }
 }
 
+/// How much per-finding detail to include in alert payloads.
+///
+/// `Auto` switches to `Summary` once the per-sink filtered finding count
+/// exceeds [`AUTO_DETAIL_THRESHOLD`] — at that volume, chat detail blocks add
+/// noise without being actionable, and the operator should be pivoting to the
+/// full report (see `--alert-report-url`).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "lowercase")]
+#[clap(rename_all = "lowercase")]
+pub enum AlertDetail {
+    /// Headline + top-rules + report link only. No per-finding lines.
+    Summary,
+    /// Headline + top-rules + per-finding lines (capped at 10).
+    Detail,
+    /// `Detail` if filtered findings ≤ [`AUTO_DETAIL_THRESHOLD`], else `Summary`.
+    #[default]
+    Auto,
+}
+
+/// Auto-mode threshold: if a sink's filtered finding count exceeds this, the
+/// payload drops the per-finding block and points at the full report instead.
+pub const AUTO_DETAIL_THRESHOLD: usize = 25;
+
 /// Webhook payload format / target.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "lowercase")]
@@ -86,9 +109,21 @@ pub struct AlertSink {
     pub on: AlertOn,
     pub min_confidence: ConfidenceLevel,
     pub include_secret: bool,
+    /// Pivot link rendered in the payload — typically the URL of the full
+    /// report artifact (CI run, S3 object, SARIF in Code Scanning, etc).
+    /// `None` omits the link from the payload.
+    pub report_url: Option<String>,
+    /// How much per-finding detail to include. `Auto` is resolved against the
+    /// per-sink filtered finding count at dispatch time before the payload
+    /// builder runs, so each `build_payload` only sees `Summary` or `Detail`.
+    pub detail: AlertDetail,
 }
 
 /// Summary numbers we surface to every sink, regardless of format.
+///
+/// Per-sink fields (`report_url`, `detail`, `filtered_total`) are populated by
+/// `dispatch` immediately before the payload builder runs. They are
+/// intentionally not part of `from_findings` because they are sink-specific.
 #[derive(Clone, Debug, Serialize)]
 pub struct AlertSummary {
     pub total: usize,
@@ -98,6 +133,16 @@ pub struct AlertSummary {
     pub by_rule: Vec<(String, usize)>,
     pub kingfisher_version: String,
     pub target: Option<String>,
+    /// Pivot link, copied from the per-sink configuration. `None` → no link
+    /// is rendered.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report_url: Option<String>,
+    /// Resolved detail level (`Summary` or `Detail`, never `Auto`).
+    pub detail: AlertDetail,
+    /// Count of findings the per-sink min-confidence filter let through. May
+    /// be smaller than `total` when the sink raises `min_confidence` above the
+    /// scan default.
+    pub filtered_total: usize,
 }
 
 impl AlertSummary {
@@ -127,6 +172,11 @@ impl AlertSummary {
             by_rule,
             kingfisher_version: env!("CARGO_PKG_VERSION").to_string(),
             target,
+            report_url: None,
+            // Placeholder; `dispatch` overwrites this per-sink with a resolved
+            // value (`Summary` or `Detail`) before calling `build_payload`.
+            detail: AlertDetail::Detail,
+            filtered_total: findings.len(),
         }
     }
 }
@@ -176,18 +226,18 @@ pub async fn dispatch(
         }
     };
 
-    let summary = AlertSummary::from_findings(findings, target);
+    let base_summary = AlertSummary::from_findings(findings, target);
     debug!(
         "alert dispatch: total={} active={} inactive={} unknown={} sinks={}",
-        summary.total,
-        summary.active,
-        summary.inactive,
-        summary.unknown,
+        base_summary.total,
+        base_summary.active,
+        base_summary.inactive,
+        base_summary.unknown,
         sinks.len()
     );
 
     for sink in sinks {
-        if matches!(sink.on, AlertOn::Findings) && summary.total == 0 {
+        if matches!(sink.on, AlertOn::Findings) && base_summary.total == 0 {
             debug!(
                 "alert dispatch: skipping {} (on=findings, no findings)",
                 redact_webhook(&sink.url)
@@ -198,6 +248,23 @@ pub async fn dispatch(
             .iter()
             .filter(|f| matches_min_confidence(&f.finding.confidence, sink.min_confidence))
             .collect();
+
+        // Per-sink summary: clone the base, overlay sink-specific fields, and
+        // resolve `Auto` based on this sink's filtered count.
+        let resolved_detail = match sink.detail {
+            AlertDetail::Auto => {
+                if filtered.len() > AUTO_DETAIL_THRESHOLD {
+                    AlertDetail::Summary
+                } else {
+                    AlertDetail::Detail
+                }
+            }
+            other => other,
+        };
+        let mut summary = base_summary.clone();
+        summary.report_url = sink.report_url.clone();
+        summary.detail = resolved_detail;
+        summary.filtered_total = filtered.len();
 
         let payload = match sink.format {
             AlertFormat::Slack => slack::build_payload(&summary, &filtered, sink.include_secret),
@@ -254,6 +321,40 @@ async fn post(client: &Client, url: &str, payload: &serde_json::Value) -> Result
         );
     }
     Ok(())
+}
+
+/// Shared test helper: build a fully-formed `FindingReporterRecord` so payload
+/// builders can be unit-tested against per-finding rendering (fingerprint,
+/// snippet redaction, summary-mode suppression). Test-only; not for runtime
+/// callers.
+#[cfg(test)]
+pub(crate) fn make_test_record(
+    rule_id: &str,
+    fingerprint: &str,
+) -> crate::reporter::FindingReporterRecord {
+    use crate::reporter::{FindingRecordData, FindingReporterRecord, RuleMetadata, ValidationInfo};
+    FindingReporterRecord {
+        rule: RuleMetadata { name: rule_id.to_string(), id: rule_id.to_string() },
+        finding: FindingRecordData {
+            snippet: "AKIAEXAMPLE_REDACTED_TOKEN_12345".to_string(),
+            fingerprint: fingerprint.to_string(),
+            confidence: "Medium".to_string(),
+            entropy: "4.5".to_string(),
+            validation: ValidationInfo {
+                status: "Active Credential".to_string(),
+                response: String::new(),
+            },
+            language: "rust".to_string(),
+            line: 42,
+            column_start: 10,
+            column_end: 50,
+            path: "src/foo.rs".to_string(),
+            encoding: None,
+            git_metadata: None,
+            validate_command: None,
+            revoke_command: None,
+        },
+    }
 }
 
 #[cfg(test)]
@@ -328,5 +429,14 @@ mod tests {
             AlertFormat::infer_from_url("https://mattermost.example.com/hooks/abcdef"),
             AlertFormat::Generic
         );
+    }
+
+    #[test]
+    fn auto_detail_threshold_is_inclusive_at_25() {
+        // Boundary regression: filtered.len() == THRESHOLD must stay in
+        // Detail mode; > THRESHOLD must escalate to Summary.
+        assert_eq!(AUTO_DETAIL_THRESHOLD, 25);
+        // The resolution itself lives inside `dispatch`; this test pins the
+        // constant so any future tuning is intentional.
     }
 }

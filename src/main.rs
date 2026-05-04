@@ -340,9 +340,100 @@ fn apply_config(
                 on: w.on,
                 min_confidence: w.min_confidence.map(Into::into),
                 include_secret: w.include_secret,
+                report_url: w.report_url.clone(),
+                detail: w.detail,
             },
         );
     }
+}
+
+/// Build a human-readable description of what the scan is targeting, for use
+/// in alert payloads (`Target:` header). The previous implementation looked
+/// only at the first local path, so scans that used git URLs, GitHub orgs,
+/// S3 buckets, etc. produced an empty target line. This walks the input
+/// specifiers in priority order and returns the first one that's set.
+fn describe_scan_target(args: &InputSpecifierArgs) -> Option<String> {
+    fn join_brief<T: std::fmt::Display>(items: &[T], label: &str) -> String {
+        match items.len() {
+            0 => String::new(),
+            1 => items[0].to_string(),
+            n if n <= 3 => items.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(", "),
+            n => format!("{} {label}", n),
+        }
+    }
+
+    // Local paths — the most common scan target.
+    if !args.path_inputs.is_empty() {
+        let s = if args.path_inputs.len() == 1 {
+            args.path_inputs[0].display().to_string()
+        } else if args.path_inputs.len() <= 3 {
+            args.path_inputs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
+        } else {
+            format!("{} paths", args.path_inputs.len())
+        };
+        return Some(s);
+    }
+    if !args.git_url.is_empty() {
+        return Some(join_brief(&args.git_url, "git URLs"));
+    }
+    if !args.github_user.is_empty() {
+        return Some(format!("github user: {}", join_brief(&args.github_user, "github users")));
+    }
+    if !args.github_organization.is_empty() {
+        return Some(format!(
+            "github org: {}",
+            join_brief(&args.github_organization, "github orgs")
+        ));
+    }
+    if args.all_github_organizations {
+        return Some("all GitHub organizations".to_string());
+    }
+    if !args.gitlab_user.is_empty() {
+        return Some(format!("gitlab user: {}", join_brief(&args.gitlab_user, "gitlab users")));
+    }
+    if !args.gitlab_group.is_empty() {
+        return Some(format!("gitlab group: {}", join_brief(&args.gitlab_group, "gitlab groups")));
+    }
+    if !args.huggingface_user.is_empty() || !args.huggingface_organization.is_empty() {
+        return Some("huggingface".to_string());
+    }
+    if !args.gitea_user.is_empty() || !args.gitea_organization.is_empty() {
+        return Some("gitea".to_string());
+    }
+    if !args.bitbucket_user.is_empty() || !args.bitbucket_workspace.is_empty() {
+        return Some("bitbucket".to_string());
+    }
+    if !args.azure_organization.is_empty() {
+        return Some(format!("azure: {}", join_brief(&args.azure_organization, "azure orgs")));
+    }
+    if let Some(b) = &args.s3_bucket {
+        return Some(format!("s3://{}{}", b, args.s3_prefix.as_deref().unwrap_or("")));
+    }
+    if let Some(b) = &args.gcs_bucket {
+        return Some(format!("gs://{}{}", b, args.gcs_prefix.as_deref().unwrap_or("")));
+    }
+    if !args.docker_image.is_empty() {
+        return Some(format!("docker: {}", join_brief(&args.docker_image, "images")));
+    }
+    if let Some(u) = &args.jira_url {
+        return Some(format!("jira: {}", u));
+    }
+    if let Some(u) = &args.confluence_url {
+        return Some(format!("confluence: {}", u));
+    }
+    if args.slack_query.is_some() {
+        return Some("slack search".to_string());
+    }
+    if args.teams_query.is_some() {
+        return Some("teams search".to_string());
+    }
+    if !args.postman_workspaces.is_empty()
+        || !args.postman_collections.is_empty()
+        || args.postman_all
+    {
+        return Some("postman".to_string());
+    }
+    None
 }
 
 /// Build the resolved list of alert sinks from CLI flags + config overrides.
@@ -373,6 +464,11 @@ fn build_alert_sinks(
                 on: override_.on.unwrap_or(scan_args.alert_on),
                 min_confidence: override_.min_confidence.unwrap_or(scan_args.alert_min_confidence),
                 include_secret: override_.include_secret.unwrap_or(scan_args.alert_include_secret),
+                report_url: override_
+                    .report_url
+                    .clone()
+                    .or_else(|| scan_args.alert_report_url.clone()),
+                detail: override_.detail.unwrap_or(scan_args.alert_detail),
             }
         })
         .collect()
@@ -554,11 +650,8 @@ async fn async_main(args: CommandLineArgs) -> Result<AsyncMainOutcome> {
                             };
                             match alert_reporter.build_finding_records(&scan_args) {
                                 Ok(records) => {
-                                    let target = scan_args
-                                        .input_specifier_args
-                                        .path_inputs
-                                        .first()
-                                        .map(|p| p.display().to_string());
+                                    let target =
+                                        describe_scan_target(&scan_args.input_specifier_args);
                                     let sinks = build_alert_sinks(&scan_args);
                                     kingfisher::alerts::dispatch(&sinks, &records, target).await;
                                 }
@@ -879,6 +972,8 @@ fn create_default_scan_args() -> cli::commands::scan::ScanArgs {
         alert_on: kingfisher::alerts::AlertOn::Findings,
         alert_min_confidence: kingfisher::cli::commands::scan::ConfidenceLevel::Medium,
         alert_include_secret: false,
+        alert_report_url: None,
+        alert_detail: kingfisher::alerts::AlertDetail::Auto,
         config_webhook_overrides: Vec::new(),
     }
 }

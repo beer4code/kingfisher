@@ -21,6 +21,8 @@ alerts:
       on: findings                                       # findings | always
       min_confidence: medium                             # low | medium | high
       include_secret: false                              # default false
+      report_url: https://ci.example/run/42              # optional pivot link rendered in payload
+      detail: auto                                       # summary | detail | auto (default auto)
 
 filters:
   skip_words:

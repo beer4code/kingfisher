@@ -239,6 +239,14 @@ async fn test_validation_cache_and_depvars() -> Result<()> {
         validation_timeout: 10,
         full_validation_response: false,
         max_validation_response_length: 2048,
+        alert_webhook: Vec::new(),
+        alert_format: None,
+        alert_on: kingfisher::alerts::AlertOn::Findings,
+        alert_min_confidence: ConfidenceLevel::Medium,
+        alert_include_secret: false,
+        alert_report_url: None,
+        alert_detail: kingfisher::alerts::AlertDetail::Auto,
+        config_webhook_overrides: Vec::new(),
     };
 
     /* --------------------------------------------------------- *
@@ -272,6 +280,7 @@ async fn test_validation_cache_and_depvars() -> Result<()> {
         allow_internal_ips: true,
         endpoint: Vec::new(),
         endpoint_config: None,
+        config: None,
     };
     let update_status = UpdateStatus::default();
 

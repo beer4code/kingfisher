@@ -253,6 +253,14 @@ async fn test_scan_postman_all() -> Result<()> {
         validation_timeout: 10,
         full_validation_response: false,
         max_validation_response_length: 2048,
+        alert_webhook: Vec::new(),
+        alert_format: None,
+        alert_on: kingfisher::alerts::AlertOn::Findings,
+        alert_min_confidence: ConfidenceLevel::Medium,
+        alert_include_secret: false,
+        alert_report_url: None,
+        alert_detail: kingfisher::alerts::AlertDetail::Auto,
+        config_webhook_overrides: Vec::new(),
     };
 
     let global_args = GlobalArgs {
@@ -268,6 +276,7 @@ async fn test_scan_postman_all() -> Result<()> {
         allow_internal_ips: false,
         endpoint: Vec::new(),
         endpoint_config: None,
+        config: None,
     };
 
     let loaded = RuleLoader::from_rule_specifiers(&scan_args.rules).load(&scan_args)?;

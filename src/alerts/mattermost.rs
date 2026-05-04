@@ -13,7 +13,7 @@
 
 use serde_json::{Value, json};
 
-use crate::alerts::AlertSummary;
+use crate::alerts::{AlertDetail, AlertSummary};
 use crate::reporter::FindingReporterRecord;
 
 const PER_FINDING_LIMIT: usize = 10;
@@ -73,7 +73,7 @@ pub fn build_payload(
         "footer": format!("kingfisher v{}", summary.kingfisher_version),
     });
 
-    if !findings.is_empty() {
+    if !findings.is_empty() && summary.detail == AlertDetail::Detail {
         let take = findings.len().min(PER_FINDING_LIMIT);
         let mut details = String::new();
         for f in findings.iter().take(take) {
@@ -83,14 +83,37 @@ pub fn build_payload(
                 "<redacted>".to_string()
             };
             details.push_str(&format!(
-                "- **{}** at `{}:{}` — `{}` (validation: {})\n",
-                f.rule.id, f.finding.path, f.finding.line, snippet, f.finding.validation.status,
+                "- **{}** at `{}:{}` — `{}` (validation: {}) — fp:`{}`\n",
+                f.rule.id,
+                f.finding.path,
+                f.finding.line,
+                snippet,
+                f.finding.validation.status,
+                f.finding.fingerprint,
             ));
         }
         if findings.len() > take {
             details.push_str(&format!("_…{} more findings omitted_\n", findings.len() - take));
         }
         attachment["text"] = Value::String(details);
+    } else if summary.detail == AlertDetail::Summary && summary.filtered_total > 0 {
+        attachment["text"] = Value::String(format!(
+            "_{} findings — per-finding detail suppressed (summary mode). See full report for specifics._",
+            summary.filtered_total
+        ));
+    }
+
+    if let Some(url) = &summary.report_url {
+        // Mattermost renders `attachments[].title_link` as a clickable title.
+        // Setting both `title_link` and a fallback field makes the link
+        // visible regardless of how a given client/version renders.
+        attachment["title_link"] = Value::String(url.clone());
+        let fields_arr = attachment["fields"].as_array_mut().expect("fields is an array");
+        fields_arr.push(json!({
+            "short": false,
+            "title": "Full report",
+            "value": format!("[Open]({})", url),
+        }));
     }
 
     json!({
@@ -124,6 +147,9 @@ mod tests {
             by_rule: vec![],
             kingfisher_version: "test".to_string(),
             target: None,
+            report_url: None,
+            detail: crate::alerts::AlertDetail::Detail,
+            filtered_total: total,
         }
     }
 
@@ -156,5 +182,35 @@ mod tests {
     fn footer_carries_version() {
         let p = build_payload(&summary(0, 0), &[], false);
         assert_eq!(p["attachments"][0]["footer"], "kingfisher vtest");
+    }
+
+    #[test]
+    fn report_url_renders_as_title_link() {
+        let mut s = summary(0, 0);
+        s.report_url = Some("https://ci.example/run/3".to_string());
+        let p = build_payload(&s, &[], false);
+        assert_eq!(p["attachments"][0]["title_link"], "https://ci.example/run/3");
+    }
+
+    #[test]
+    fn summary_mode_emits_suppression_notice() {
+        let mut s = summary(40, 0);
+        s.detail = crate::alerts::AlertDetail::Summary;
+        s.filtered_total = 40;
+        let rec = crate::alerts::make_test_record("kingfisher.aws.1", "fp-y");
+        let p = build_payload(&s, &[&rec], false);
+        let text = p["attachments"][0]["text"].as_str().unwrap();
+        assert!(text.contains("per-finding detail suppressed"));
+        assert!(!text.contains("kingfisher.aws.1"));
+    }
+
+    #[test]
+    fn detail_mode_includes_fingerprint() {
+        let mut s = summary(1, 1);
+        s.filtered_total = 1;
+        let rec = crate::alerts::make_test_record("kingfisher.aws.1", "fp-mm-7");
+        let p = build_payload(&s, &[&rec], false);
+        let text = p["attachments"][0]["text"].as_str().unwrap();
+        assert!(text.contains("fp:`fp-mm-7`"));
     }
 }

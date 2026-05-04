@@ -7,7 +7,7 @@
 
 use serde_json::{Value, json};
 
-use crate::alerts::AlertSummary;
+use crate::alerts::{AlertDetail, AlertSummary};
 use crate::reporter::FindingReporterRecord;
 
 const PER_FINDING_LIMIT: usize = 10;
@@ -77,7 +77,7 @@ pub fn build_payload(
         "footer": { "text": format!("kingfisher v{}", summary.kingfisher_version) },
     });
 
-    if !findings.is_empty() {
+    if !findings.is_empty() && summary.detail == AlertDetail::Detail {
         let take = findings.len().min(PER_FINDING_LIMIT);
         let mut detail = String::new();
         for f in findings.iter().take(take) {
@@ -87,14 +87,38 @@ pub fn build_payload(
                 "<redacted>".to_string()
             };
             detail.push_str(&format!(
-                "• `{}` at `{}:{}` — `{}` (validation: {})\n",
-                f.rule.id, f.finding.path, f.finding.line, snippet, f.finding.validation.status,
+                "• `{}` at `{}:{}` — `{}` (validation: {}) — fp:`{}`\n",
+                f.rule.id,
+                f.finding.path,
+                f.finding.line,
+                snippet,
+                f.finding.validation.status,
+                f.finding.fingerprint,
             ));
         }
         if findings.len() > take {
             detail.push_str(&format!("…{} more findings omitted", findings.len() - take));
         }
         embed["description"] = Value::String(truncate(&detail, DESCRIPTION_SOFT_LIMIT));
+    } else if summary.detail == AlertDetail::Summary && summary.filtered_total > 0 {
+        embed["description"] = Value::String(format!(
+            "_{} findings — per-finding detail suppressed (summary mode). See full report for specifics._",
+            summary.filtered_total
+        ));
+    }
+
+    // Render the report URL as a clickable embed link in the title (Discord
+    // does not have a dedicated "actions" surface on webhook embeds).
+    if let Some(url) = &summary.report_url {
+        embed["url"] = Value::String(url.clone());
+        // Append a fields entry too — embed `url` only renders if the title
+        // is short enough; the field guarantees the link is visible.
+        let fields_arr = embed["fields"].as_array_mut().expect("fields is an array");
+        fields_arr.push(json!({
+            "name": "Full report",
+            "value": format!("[Open]({})", url),
+            "inline": false,
+        }));
     }
 
     json!({ "embeds": [embed] })
@@ -125,6 +149,9 @@ mod tests {
             by_rule: vec![],
             kingfisher_version: "test".to_string(),
             target: None,
+            report_url: None,
+            detail: crate::alerts::AlertDetail::Detail,
+            filtered_total: total,
         }
     }
 
@@ -157,5 +184,37 @@ mod tests {
     fn empty_findings_has_no_description() {
         let p = build_payload(&summary(0, 0), &[], false);
         assert!(p["embeds"][0].get("description").is_none());
+    }
+
+    #[test]
+    fn report_url_renders_as_field_and_embed_url() {
+        let mut s = summary(0, 0);
+        s.report_url = Some("https://ci.example/run/9".to_string());
+        let p = build_payload(&s, &[], false);
+        assert_eq!(p["embeds"][0]["url"], "https://ci.example/run/9");
+        let serialized = serde_json::to_string(&p).unwrap();
+        assert!(serialized.contains("Full report"));
+    }
+
+    #[test]
+    fn summary_mode_emits_suppression_notice() {
+        let mut s = summary(50, 5);
+        s.detail = crate::alerts::AlertDetail::Summary;
+        s.filtered_total = 50;
+        let rec = crate::alerts::make_test_record("kingfisher.aws.1", "fp-x");
+        let p = build_payload(&s, &[&rec], false);
+        let desc = p["embeds"][0]["description"].as_str().unwrap();
+        assert!(desc.contains("per-finding detail suppressed"));
+        assert!(!desc.contains("kingfisher.aws.1"));
+    }
+
+    #[test]
+    fn detail_mode_includes_fingerprint() {
+        let mut s = summary(1, 1);
+        s.filtered_total = 1;
+        let rec = crate::alerts::make_test_record("kingfisher.aws.1", "fp-d-99");
+        let p = build_payload(&s, &[&rec], false);
+        let desc = p["embeds"][0]["description"].as_str().unwrap();
+        assert!(desc.contains("fp:`fp-d-99`"));
     }
 }

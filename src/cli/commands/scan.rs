@@ -254,6 +254,27 @@ pub struct ScanArgs {
     #[arg(global = true, long = "alert-include-secret", default_value_t = false)]
     pub alert_include_secret: bool,
 
+    /// Pivot link rendered in the payload — typically the URL of the full
+    /// scan report (CI run, S3 object, SARIF in Code Scanning, etc.). When
+    /// present, every alert payload includes a "Full report" link, which is
+    /// the right place to send operators who hit the truncated finding cap.
+    /// Falls back to env var `KINGFISHER_ALERT_REPORT_URL` if unset.
+    #[arg(
+        global = true,
+        long = "alert-report-url",
+        value_name = "URL",
+        env = "KINGFISHER_ALERT_REPORT_URL"
+    )]
+    pub alert_report_url: Option<String>,
+
+    /// How much per-finding detail to include in alert payloads. `auto`
+    /// (default) shows up to 10 findings inline, but switches to a
+    /// summary-only payload once the per-sink filtered finding count exceeds
+    /// 25 — at that volume, chat detail blocks add noise and the operator
+    /// should be pivoting to the full report instead.
+    #[arg(global = true, long = "alert-detail", value_name = "MODE", default_value = "auto")]
+    pub alert_detail: crate::alerts::AlertDetail,
+
     /// Per-webhook overrides loaded from `kingfisher.yaml`. Indexed in lockstep
     /// with `alert_webhook` for the trailing config-sourced URLs. Not parsed
     /// from the CLI; populated by `apply_config` in main.rs.
@@ -270,6 +291,8 @@ pub struct ConfigWebhookOverride {
     pub on: Option<crate::alerts::AlertOn>,
     pub min_confidence: Option<ConfidenceLevel>,
     pub include_secret: Option<bool>,
+    pub report_url: Option<String>,
+    pub detail: Option<crate::alerts::AlertDetail>,
 }
 
 /// Confidence levels for findings

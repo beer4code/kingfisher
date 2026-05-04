@@ -1086,6 +1086,8 @@ pub(crate) fn create_minimal_scan_args() -> crate::cli::commands::scan::ScanArgs
         alert_on: crate::alerts::AlertOn::Findings,
         alert_min_confidence: ConfidenceLevel::Medium,
         alert_include_secret: false,
+        alert_report_url: None,
+        alert_detail: crate::alerts::AlertDetail::Auto,
         config_webhook_overrides: Vec::new(),
         validation_timeout: 10,
         validation_retries: 1,

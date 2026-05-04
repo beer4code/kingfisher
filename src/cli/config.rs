@@ -12,6 +12,8 @@
 //!       on: findings           # findings | always
 //!       min_confidence: medium # low | medium | high
 //!       include_secret: false
+//!       report_url: https://github.com/org/repo/actions/runs/123  # optional pivot link
+//!       detail: auto           # summary | detail | auto
 //! filters:
 //!   skip_words: ["EXAMPLE", "TEST"]
 //!   skip_regex: ['^DUMMY_']
@@ -25,7 +27,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::alerts::{AlertFormat, AlertOn};
+use crate::alerts::{AlertDetail, AlertFormat, AlertOn};
 use crate::cli::commands::scan::ConfidenceLevel;
 
 /// File name auto-discovered when the user does not pass `--config`.
@@ -59,6 +61,14 @@ pub struct WebhookConfig {
     pub min_confidence: Option<ConfigConfidence>,
     #[serde(default)]
     pub include_secret: Option<bool>,
+    /// Per-webhook override of the global `--alert-report-url`. Useful when
+    /// chat sinks should carry a pivot link but a SIEM-bound generic webhook
+    /// shouldn't.
+    #[serde(default)]
+    pub report_url: Option<String>,
+    /// Per-webhook override of the global `--alert-detail` mode.
+    #[serde(default)]
+    pub detail: Option<AlertDetail>,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]

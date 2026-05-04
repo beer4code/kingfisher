@@ -2,7 +2,7 @@
 
 use serde_json::{Value, json};
 
-use crate::alerts::AlertSummary;
+use crate::alerts::{AlertDetail, AlertSummary};
 use crate::reporter::FindingReporterRecord;
 
 const PER_FINDING_LIMIT: usize = 10;
@@ -55,7 +55,7 @@ pub fn build_payload(
         }));
     }
 
-    if !findings.is_empty() {
+    if !findings.is_empty() && summary.detail == AlertDetail::Detail {
         let take = findings.len().min(PER_FINDING_LIMIT);
         let mut detail_lines: Vec<String> = Vec::with_capacity(take);
         for f in findings.iter().take(take) {
@@ -65,12 +65,13 @@ pub fn build_payload(
                 "<redacted>".to_string()
             };
             detail_lines.push(format!(
-                "• `{}` at `{}:{}` — {} (validation: {})",
+                "• `{}` at `{}:{}` — {} (validation: {}) — fp:`{}`",
                 escape_mrkdwn(&f.rule.id),
                 escape_mrkdwn(&f.finding.path),
                 f.finding.line,
                 snippet,
-                escape_mrkdwn(&f.finding.validation.status)
+                escape_mrkdwn(&f.finding.validation.status),
+                escape_mrkdwn(&f.finding.fingerprint),
             ));
         }
         if findings.len() > take {
@@ -79,6 +80,30 @@ pub fn build_payload(
         blocks.push(json!({
             "type": "section",
             "text": { "type": "mrkdwn", "text": detail_lines.join("\n") }
+        }));
+    } else if summary.detail == AlertDetail::Summary && summary.filtered_total > 0 {
+        // Summary-mode: explicitly tell the operator the per-finding block was
+        // dropped on purpose, so they pivot to the report instead of assuming
+        // the alert is incomplete.
+        blocks.push(json!({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": format!(
+                    "_{} findings — per-finding detail suppressed (summary mode). See full report for specifics._",
+                    summary.filtered_total
+                )
+            }
+        }));
+    }
+
+    if let Some(url) = &summary.report_url {
+        blocks.push(json!({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": format!("<{}|Full report →>", escape_mrkdwn(url))
+            }
         }));
     }
 
@@ -119,6 +144,9 @@ mod tests {
             by_rule: vec![],
             kingfisher_version: "test".to_string(),
             target: None,
+            report_url: None,
+            detail: crate::alerts::AlertDetail::Detail,
+            filtered_total: 0,
         }
     }
 
@@ -140,10 +168,52 @@ mod tests {
             by_rule: vec![("kingfisher.aws.1".into(), 1)],
             kingfisher_version: "test".to_string(),
             target: None,
+            report_url: None,
+            detail: crate::alerts::AlertDetail::Detail,
+            filtered_total: 1,
         };
         let p = build_payload(&summary, &[], false);
         let header = p["blocks"][0]["text"]["text"].as_str().unwrap();
         assert!(header.contains("1 finding"));
         assert!(!header.contains("findings"), "should be singular");
+    }
+
+    #[test]
+    fn report_url_renders_link_block() {
+        let mut s = empty_summary();
+        s.report_url = Some("https://ci.example/run/42".to_string());
+        let p = build_payload(&s, &[], false);
+        let serialized = serde_json::to_string(&p).unwrap();
+        assert!(serialized.contains("https://ci.example/run/42"));
+        assert!(serialized.contains("Full report"));
+    }
+
+    #[test]
+    fn summary_mode_suppresses_findings_with_notice() {
+        let mut s = empty_summary();
+        s.detail = crate::alerts::AlertDetail::Summary;
+        s.filtered_total = 50;
+        let rec = crate::alerts::make_test_record("kingfisher.aws.1", "fp-123");
+        let p = build_payload(&s, &[&rec], false);
+        let serialized = serde_json::to_string(&p).unwrap();
+        // Per-finding rule id must NOT appear in summary mode.
+        assert!(
+            !serialized.contains("kingfisher.aws.1"),
+            "summary mode must not render the per-finding rule id"
+        );
+        // The suppression notice must appear so the operator knows why.
+        assert!(serialized.contains("per-finding detail suppressed"));
+        assert!(serialized.contains("50 findings"));
+    }
+
+    #[test]
+    fn detail_mode_includes_fingerprint() {
+        let mut s = empty_summary();
+        s.total = 1;
+        s.filtered_total = 1;
+        let rec = crate::alerts::make_test_record("kingfisher.aws.1", "fp-abc-123");
+        let p = build_payload(&s, &[&rec], false);
+        let serialized = serde_json::to_string(&p).unwrap();
+        assert!(serialized.contains("fp:`fp-abc-123`"), "fingerprint must appear in detail block");
     }
 }

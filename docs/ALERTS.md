@@ -53,10 +53,47 @@ always self-hosted), so it is **never** inferred — pass
 | `--alert-on findings\|always` | `findings` | `always` posts even on a clean run. |
 | `--alert-min-confidence low\|medium\|high` | `medium` | Findings below this are dropped from the payload. |
 | `--alert-include-secret` | off | Include the (truncated to ~32 chars) secret value in the payload. |
+| `--alert-report-url URL` | *(none)* | Pivot link rendered in every payload — typically a CI run URL or report-artifact URL. Reads `KINGFISHER_ALERT_REPORT_URL` env var as a fallback. |
+| `--alert-detail summary\|detail\|auto` | `auto` | How much per-finding detail to render. `auto` switches to `summary` once the per-sink filtered finding count exceeds 25. |
 
 Webhook URLs are sensitive: the host/path/query are redacted in logs. Pass them
 via environment variables (`$SLACK_SECURITY_WEBHOOK`) or CI secrets, never
 inline in committed files.
+
+## Detail modes
+
+Chat is a notification surface, not a report viewer. `--alert-detail` controls
+how much per-finding detail Kingfisher tries to cram into a single message:
+
+- **`detail`** — header + summary stats + up to 10 findings inline + report link.
+  Best for low-volume runs where the reviewer wants triage info in chat.
+- **`summary`** — header + summary stats + report link, *no* per-finding lines.
+  Best for high-volume runs and SOC/SIEM ingestion where chat just needs to
+  page someone with a count.
+- **`auto`** (default) — `detail` when filtered findings ≤ 25, otherwise
+  `summary`. Avoids the "10 shown, 190 omitted" anti-pattern on large repos.
+
+Pair `summary` (or `auto` at scale) with `--alert-report-url` so the operator
+has a one-click pivot to the full report:
+
+```bash
+kingfisher scan ./repo \
+  --alert-webhook "$SLACK_SECURITY_WEBHOOK" \
+  --alert-report-url "$GITHUB_RUN_URL" \
+  --alert-detail auto \
+  --format json --output ./kingfisher-report.json
+```
+
+## Per-finding fingerprints
+
+Every finding line in `detail` mode (and every record in the Generic JSON
+payload) carries a stable `fingerprint`. Downstream automation (SIEM/SOAR,
+Jira webhooks, custom dedupe) can use it to:
+
+- Suppress repeat alerts when the same secret reappears in subsequent runs.
+- Correlate the chat alert with the matching `kingfisher.fingerprint` in the
+  baseline file or the SARIF report.
+- Build per-finding triage threads / tickets keyed by fingerprint.
 
 ## Payload shapes
 
@@ -144,6 +181,14 @@ alerts:
     - url: https://chat.googleapis.com/v1/spaces/AAA/messages?key=k&token=t
       format: googlechat
       on: always
+      report_url: https://github.com/org/repo/actions/runs/4242    # per-webhook pivot link
+      detail: summary                                              # blue-team mode for this sink
 ```
+
+`report_url` and `detail` can be set globally via `--alert-report-url` and
+`--alert-detail`, or overridden per-webhook in YAML. Per-webhook overrides
+let you, for example, send a *summary* card with a CI link to a busy team
+channel while still sending *detail* + per-finding fingerprints to a quieter
+SOC channel.
 
 See [`docs/CONFIG.md`](CONFIG.md) for the full config schema.

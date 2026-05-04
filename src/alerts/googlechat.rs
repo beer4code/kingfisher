@@ -9,7 +9,7 @@
 
 use serde_json::{Value, json};
 
-use crate::alerts::AlertSummary;
+use crate::alerts::{AlertDetail, AlertSummary};
 use crate::reporter::FindingReporterRecord;
 
 const PER_FINDING_LIMIT: usize = 10;
@@ -60,7 +60,7 @@ pub fn build_payload(
         "widgets": summary_widgets,
     })];
 
-    if !findings.is_empty() {
+    if !findings.is_empty() && summary.detail == AlertDetail::Detail {
         let take = findings.len().min(PER_FINDING_LIMIT);
         let mut detail = String::new();
         for f in findings.iter().take(take) {
@@ -70,8 +70,13 @@ pub fn build_payload(
                 "<redacted>".to_string()
             };
             detail.push_str(&format!(
-                "• <b>{}</b> at <code>{}:{}</code> — <code>{}</code> (validation: {})<br>",
-                f.rule.id, f.finding.path, f.finding.line, snippet, f.finding.validation.status,
+                "• <b>{}</b> at <code>{}:{}</code> — <code>{}</code> (validation: {}) — fp:<code>{}</code><br>",
+                f.rule.id,
+                f.finding.path,
+                f.finding.line,
+                snippet,
+                f.finding.validation.status,
+                f.finding.fingerprint,
             ));
         }
         if findings.len() > take {
@@ -80,6 +85,29 @@ pub fn build_payload(
         sections.push(json!({
             "header": "Findings",
             "widgets": [{ "textParagraph": { "text": detail } }],
+        }));
+    } else if summary.detail == AlertDetail::Summary && summary.filtered_total > 0 {
+        sections.push(json!({
+            "header": "Findings",
+            "widgets": [{ "textParagraph": { "text": format!(
+                "<i>{} findings — per-finding detail suppressed (summary mode). See full report for specifics.</i>",
+                summary.filtered_total
+            ) }}],
+        }));
+    }
+
+    if let Some(url) = &summary.report_url {
+        // `buttonList` widget gives a tappable "Full report" button below the
+        // card body — Google Chat's idiomatic way to render a pivot link.
+        sections.push(json!({
+            "widgets": [{
+                "buttonList": {
+                    "buttons": [{
+                        "text": "Full report",
+                        "onClick": { "openLink": { "url": url } }
+                    }]
+                }
+            }]
         }));
     }
 
@@ -122,6 +150,9 @@ mod tests {
             by_rule: vec![],
             kingfisher_version: "test".to_string(),
             target: None,
+            report_url: None,
+            detail: crate::alerts::AlertDetail::Detail,
+            filtered_total: total,
         }
     }
 
@@ -151,5 +182,40 @@ mod tests {
     fn subtitle_carries_version() {
         let p = build_payload(&summary(0, 0), &[], false);
         assert_eq!(p["cardsV2"][0]["card"]["header"]["subtitle"], "kingfisher vtest");
+    }
+
+    #[test]
+    fn report_url_renders_as_button() {
+        let mut s = summary(0, 0);
+        s.report_url = Some("https://ci.example/run/11".to_string());
+        let p = build_payload(&s, &[], false);
+        let serialized = serde_json::to_string(&p).unwrap();
+        assert!(serialized.contains("https://ci.example/run/11"));
+        assert!(serialized.contains("Full report"));
+        assert!(serialized.contains("buttonList"));
+    }
+
+    #[test]
+    fn summary_mode_emits_suppression_notice() {
+        let mut s = summary(60, 0);
+        s.detail = crate::alerts::AlertDetail::Summary;
+        s.filtered_total = 60;
+        let rec = crate::alerts::make_test_record("kingfisher.aws.1", "fp-z");
+        let p = build_payload(&s, &[&rec], false);
+        let serialized = serde_json::to_string(&p).unwrap();
+        assert!(serialized.contains("per-finding detail suppressed"));
+        // Rule id present in HTML-encoded form like <b>kingfisher.aws.1</b>
+        // would mean detail mode leaked through; assert absence.
+        assert!(!serialized.contains("kingfisher.aws.1"));
+    }
+
+    #[test]
+    fn detail_mode_includes_fingerprint() {
+        let mut s = summary(1, 1);
+        s.filtered_total = 1;
+        let rec = crate::alerts::make_test_record("kingfisher.aws.1", "fp-gc-13");
+        let p = build_payload(&s, &[&rec], false);
+        let serialized = serde_json::to_string(&p).unwrap();
+        assert!(serialized.contains("fp-gc-13"));
     }
 }

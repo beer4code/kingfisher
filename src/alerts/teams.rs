@@ -7,7 +7,7 @@
 
 use serde_json::{Value, json};
 
-use crate::alerts::AlertSummary;
+use crate::alerts::{AlertDetail, AlertSummary};
 use crate::reporter::FindingReporterRecord;
 
 const PER_FINDING_LIMIT: usize = 10;
@@ -50,7 +50,7 @@ pub fn build_payload(
         "markdown": true,
     })];
 
-    if !findings.is_empty() {
+    if !findings.is_empty() && summary.detail == AlertDetail::Detail {
         let take = findings.len().min(PER_FINDING_LIMIT);
         let mut details = String::new();
         for f in findings.iter().take(take) {
@@ -60,8 +60,13 @@ pub fn build_payload(
                 "<redacted>".to_string()
             };
             details.push_str(&format!(
-                "- **{}** at `{}:{}` — `{}` (validation: {})\n",
-                f.rule.id, f.finding.path, f.finding.line, snippet, f.finding.validation.status
+                "- **{}** at `{}:{}` — `{}` (validation: {}) — fp:`{}`\n",
+                f.rule.id,
+                f.finding.path,
+                f.finding.line,
+                snippet,
+                f.finding.validation.status,
+                f.finding.fingerprint,
             ));
         }
         if findings.len() > take {
@@ -71,16 +76,35 @@ pub fn build_payload(
             "title": "Findings",
             "text": details,
         }));
+    } else if summary.detail == AlertDetail::Summary && summary.filtered_total > 0 {
+        sections.push(json!({
+            "title": "Findings",
+            "text": format!(
+                "_{} findings — per-finding detail suppressed (summary mode). See full report for specifics._",
+                summary.filtered_total
+            ),
+        }));
     }
 
-    json!({
+    let mut card = json!({
         "@type": "MessageCard",
         "@context": "https://schema.org/extensions",
         "summary": title,
         "themeColor": theme_color,
         "title": title,
         "sections": sections,
-    })
+    });
+
+    if let Some(url) = &summary.report_url {
+        // Teams renders an `OpenUri` action as a button on the card.
+        card["potentialAction"] = json!([{
+            "@type": "OpenUri",
+            "name": "Full report",
+            "targets": [{ "os": "default", "uri": url }],
+        }]);
+    }
+
+    card
 }
 
 fn plural(n: usize) -> &'static str {
@@ -108,6 +132,9 @@ mod tests {
             by_rule: vec![],
             kingfisher_version: "test".to_string(),
             target: None,
+            report_url: None,
+            detail: crate::alerts::AlertDetail::Detail,
+            filtered_total: total,
         }
     }
 
@@ -127,5 +154,36 @@ mod tests {
     fn theme_color_amber_when_findings_no_active() {
         let p = build_payload(&summary(2, 0), &[], false);
         assert_eq!(p["themeColor"], "F39C12");
+    }
+
+    #[test]
+    fn report_url_adds_open_uri_action() {
+        let mut s = summary(1, 0);
+        s.report_url = Some("https://ci.example/run/77".to_string());
+        let p = build_payload(&s, &[], false);
+        assert_eq!(p["potentialAction"][0]["@type"], "OpenUri");
+        assert_eq!(p["potentialAction"][0]["targets"][0]["uri"], "https://ci.example/run/77");
+    }
+
+    #[test]
+    fn summary_mode_emits_suppression_notice() {
+        let mut s = summary(40, 0);
+        s.detail = crate::alerts::AlertDetail::Summary;
+        s.filtered_total = 40;
+        let rec = crate::alerts::make_test_record("kingfisher.aws.1", "fp-t");
+        let p = build_payload(&s, &[&rec], false);
+        let serialized = serde_json::to_string(&p).unwrap();
+        assert!(serialized.contains("per-finding detail suppressed"));
+        assert!(!serialized.contains("kingfisher.aws.1"));
+    }
+
+    #[test]
+    fn detail_mode_includes_fingerprint() {
+        let mut s = summary(1, 1);
+        s.filtered_total = 1;
+        let rec = crate::alerts::make_test_record("kingfisher.aws.1", "fp-teams-5");
+        let p = build_payload(&s, &[&rec], false);
+        let serialized = serde_json::to_string(&p).unwrap();
+        assert!(serialized.contains("fp:`fp-teams-5`"));
     }
 }
