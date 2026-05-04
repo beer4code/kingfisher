@@ -155,6 +155,13 @@ pub struct GlobalArgs {
     #[arg(global = true, long = "endpoint-config", value_name = "FILE")]
     pub endpoint_config: Option<PathBuf>,
 
+    /// Path to a `kingfisher.yaml` project config file.
+    /// If omitted, Kingfisher walks up from the current working directory looking
+    /// for `kingfisher.yaml`. The config supplies additional alert webhooks and
+    /// filter lists; CLI flags are concatenated with config values.
+    #[arg(global = true, long = "config", value_name = "FILE")]
+    pub config: Option<PathBuf>,
+
     // Internal fields (not CLI arguments)
     #[clap(skip)]
     pub color: Mode,
@@ -176,6 +183,7 @@ impl Default for GlobalArgs {
             user_agent_suffix: None,
             endpoint: Vec::new(),
             endpoint_config: None,
+            config: None,
             color: Mode::Auto,
             progress: Mode::Auto,
         }

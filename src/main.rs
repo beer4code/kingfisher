@@ -292,6 +292,92 @@ fn setup_logging(global_args: &GlobalArgs) {
         .init();
 }
 
+/// Resolve and read a `kingfisher.yaml` project config.
+/// - Explicit `--config <PATH>` is required to exist; missing/unreadable is an error.
+/// - Otherwise we walk up from CWD looking for `kingfisher.yaml`. Missing is fine.
+fn load_project_config(
+    explicit: Option<&std::path::Path>,
+) -> Result<Option<kingfisher::cli::config::KingfisherConfig>> {
+    let path = match explicit {
+        Some(p) => Some(p.to_path_buf()),
+        None => {
+            let cwd = std::env::current_dir().context("read CWD for config discovery")?;
+            kingfisher::cli::config::discover_path(&cwd)
+        }
+    };
+    match path {
+        Some(p) => {
+            let bytes =
+                std::fs::read(&p).with_context(|| format!("read config {}", p.display()))?;
+            let yaml = String::from_utf8(bytes)
+                .with_context(|| format!("config {} is not UTF-8", p.display()))?;
+            let cfg = kingfisher::cli::config::parse_str(&yaml)
+                .with_context(|| format!("parse config {}", p.display()))?;
+            info!("loaded config from {}", p.display());
+            Ok(Some(cfg))
+        }
+        None => Ok(None),
+    }
+}
+
+/// Merge config-file values into clap-parsed args. Lists are concatenated.
+fn apply_config(
+    scan_args: &mut cli::commands::scan::ScanArgs,
+    cfg: &kingfisher::cli::config::KingfisherConfig,
+) {
+    // Filters — append to whatever was passed on the CLI.
+    scan_args.skip_word.extend(cfg.filters.skip_words.iter().cloned());
+    scan_args.skip_regex.extend(cfg.filters.skip_regex.iter().cloned());
+    scan_args.content_filtering_args.exclude.extend(cfg.filters.exclude.iter().cloned());
+
+    // Alerts — append URLs. Per-webhook overrides are stored in
+    // `pending_config_alert_sinks` so the dispatch site can use them.
+    for w in &cfg.alerts.webhooks {
+        scan_args.alert_webhook.push(w.url.clone());
+        scan_args.config_webhook_overrides.push(
+            kingfisher::cli::commands::scan::ConfigWebhookOverride {
+                format: w.format,
+                on: w.on,
+                min_confidence: w.min_confidence.map(Into::into),
+                include_secret: w.include_secret,
+            },
+        );
+    }
+}
+
+/// Build the resolved list of alert sinks from CLI flags + config overrides.
+/// `scan_args.config_webhook_overrides` aligns with the trailing entries of
+/// `scan_args.alert_webhook` (those that came from `kingfisher.yaml`); CLI URLs
+/// always come first and use the scalar CLI flags.
+fn build_alert_sinks(
+    scan_args: &cli::commands::scan::ScanArgs,
+) -> Vec<kingfisher::alerts::AlertSink> {
+    let cli_count = scan_args.alert_webhook.len() - scan_args.config_webhook_overrides.len();
+    scan_args
+        .alert_webhook
+        .iter()
+        .enumerate()
+        .map(|(i, url)| {
+            let override_ = if i >= cli_count {
+                scan_args.config_webhook_overrides.get(i - cli_count).cloned().unwrap_or_default()
+            } else {
+                cli::commands::scan::ConfigWebhookOverride::default()
+            };
+            let format = override_
+                .format
+                .or(scan_args.alert_format)
+                .unwrap_or_else(|| kingfisher::alerts::AlertFormat::infer_from_url(url));
+            kingfisher::alerts::AlertSink {
+                url: url.clone(),
+                format,
+                on: override_.on.unwrap_or(scan_args.alert_on),
+                min_confidence: override_.min_confidence.unwrap_or(scan_args.alert_min_confidence),
+                include_secret: override_.include_secret.unwrap_or(scan_args.alert_include_secret),
+            }
+        })
+        .collect()
+}
+
 pub fn determine_exit_code(datastore: &Arc<Mutex<findings_store::FindingsStore>>) -> i32 {
     // exit with code 200 if _any_ findings are discovered
     // exit with code 205 if VALIDATED findings are discovered
@@ -386,6 +472,13 @@ async fn async_main(args: CommandLineArgs) -> Result<AsyncMainOutcome> {
             match command {
                 Command::Scan(scan_command) => match scan_command.into_operation()? {
                     ScanOperation::Scan(mut scan_args) => {
+                        // Resolve and merge kingfisher.yaml (additive: lists are concatenated
+                        // onto CLI flags). Errors only when --config explicitly points at a
+                        // file we cannot parse. Auto-discovery failures are silent.
+                        let loaded_config = load_project_config(global_args.config.as_deref())?;
+                        if let Some(cfg) = &loaded_config {
+                            apply_config(&mut scan_args, cfg);
+                        }
                         if scan_args.view_report {
                             view::ensure_port_available(
                                 scan_args.view_report_port,
@@ -450,6 +543,28 @@ async fn async_main(args: CommandLineArgs) -> Result<AsyncMainOutcome> {
                             }
                         }
                         let exit_code = determine_exit_code(&datastore);
+
+                        // Dispatch alert webhooks (best-effort; failures are warned, not fatal).
+                        if !scan_args.alert_webhook.is_empty() {
+                            let alert_reporter = DetailsReporter {
+                                datastore: Arc::clone(&datastore),
+                                styles: Styles::new(global_args.use_color(std::io::stdout())),
+                                only_valid: scan_args.only_valid,
+                                audit_context: None,
+                            };
+                            match alert_reporter.build_finding_records(&scan_args) {
+                                Ok(records) => {
+                                    let target = scan_args
+                                        .input_specifier_args
+                                        .path_inputs
+                                        .first()
+                                        .map(|p| p.display().to_string());
+                                    let sinks = build_alert_sinks(&scan_args);
+                                    kingfisher::alerts::dispatch(&sinks, &records, target).await;
+                                }
+                                Err(e) => warn!("alert dispatch: failed to build findings: {}", e),
+                            }
+                        }
 
                         if scan_args.view_report {
                             let audit_context = ScanAuditContext {
@@ -759,6 +874,12 @@ fn create_default_scan_args() -> cli::commands::scan::ScanArgs {
         validation_rps_rule: Vec::new(),
         full_validation_response: false,
         max_validation_response_length: 2048,
+        alert_webhook: Vec::new(),
+        alert_format: None,
+        alert_on: kingfisher::alerts::AlertOn::Findings,
+        alert_min_confidence: kingfisher::cli::commands::scan::ConfidenceLevel::Medium,
+        alert_include_secret: false,
+        config_webhook_overrides: Vec::new(),
     }
 }
 /// Run the rules check command

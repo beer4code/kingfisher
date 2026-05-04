@@ -4,6 +4,7 @@ pub use kingfisher_rules;
 pub use kingfisher_scanner;
 
 pub mod access_map;
+pub mod alerts;
 pub mod azure;
 pub mod baseline;
 pub mod binary;

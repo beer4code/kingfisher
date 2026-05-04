@@ -222,6 +222,51 @@ pub struct ScanArgs {
     pub view_report_port: u16,
     #[arg(skip)]
     pub view_report_address: String,
+
+    /// POST scan results to a webhook URL when scanning completes (repeatable).
+    /// Use multiple `--alert-webhook` flags to fan out to several destinations.
+    #[arg(global = true, long = "alert-webhook", value_name = "URL")]
+    pub alert_webhook: Vec<String>,
+
+    /// Format for `--alert-webhook` payloads. Default is inferred from the URL
+    /// host (slack.com → slack, *.office.com → teams, otherwise generic).
+    #[arg(global = true, long = "alert-format", value_name = "FORMAT")]
+    pub alert_format: Option<crate::alerts::AlertFormat>,
+
+    /// When to post alerts: only when there are findings, or always.
+    #[arg(global = true, long = "alert-on", value_name = "MODE", default_value = "findings")]
+    pub alert_on: crate::alerts::AlertOn,
+
+    /// Minimum confidence required for a finding to be included in alert payloads.
+    #[arg(
+        global = true,
+        long = "alert-min-confidence",
+        value_name = "LEVEL",
+        default_value = "medium"
+    )]
+    pub alert_min_confidence: ConfidenceLevel,
+
+    /// Include the (possibly truncated) secret value in alert payloads.
+    /// Off by default; on, the snippet is truncated to ~32 chars.
+    #[arg(global = true, long = "alert-include-secret", default_value_t = false)]
+    pub alert_include_secret: bool,
+
+    /// Per-webhook overrides loaded from `kingfisher.yaml`. Indexed in lockstep
+    /// with `alert_webhook` for the trailing config-sourced URLs. Not parsed
+    /// from the CLI; populated by `apply_config` in main.rs.
+    #[arg(skip)]
+    pub config_webhook_overrides: Vec<ConfigWebhookOverride>,
+}
+
+/// Override values for a webhook entry that came from the config file.
+/// Each field that is `None` falls back to the corresponding `--alert-*` CLI
+/// flag's value.
+#[derive(Debug, Clone, Default)]
+pub struct ConfigWebhookOverride {
+    pub format: Option<crate::alerts::AlertFormat>,
+    pub on: Option<crate::alerts::AlertOn>,
+    pub min_confidence: Option<ConfidenceLevel>,
+    pub include_secret: Option<bool>,
 }
 
 /// Confidence levels for findings
