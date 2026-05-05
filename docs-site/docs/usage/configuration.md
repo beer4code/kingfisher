@@ -272,5 +272,5 @@ alerts:
       format: slack
 ```
 
-Combined with [`docs/ALERTS.md`](ALERTS.md), this lets one repo own its
+Combined with [`docs/ALERTS.md`](https://github.com/mongodb/kingfisher/blob/main/docs/ALERTS.md), this lets one repo own its
 webhook configuration and CI policy without baking it into command-line strings.
