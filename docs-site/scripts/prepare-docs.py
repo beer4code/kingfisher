@@ -126,6 +126,7 @@ LINK_REWRITES = {
     "LIBRARY.md": "../reference/library.md",
     "PYPI.md": "../reference/python-bindings.md",
     "COMPARISON.md": "../reference/comparison.md",
+    "ALERTS.md": "https://github.com/mongodb/kingfisher/blob/main/docs/ALERTS.md",
 }
 
 
