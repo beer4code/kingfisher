@@ -18,9 +18,9 @@ use zip::ZipArchive;
 
 /// Formats that are basically a ZIP container.
 pub const ZIP_BASED_FORMATS: &[&str] = &[
-    "zip", "zipx", "jar", "war", "ear", "aar", "jmod", "jhm", "jnlp", "nupkg", "vsix", "xap",
-    "docx", "xlsx", "pptx", "odt", "ods", "odp", "odg", "odf", "epub", "gadget", "kmz", "widget",
-    "xpi", "sketch", "pages", "key", "numbers", "hwpx",
+    "zip", "zipx", "jar", "war", "ear", "aar", "apk", "aab", "ipa", "jmod", "jhm", "jnlp",
+    "nupkg", "vsix", "xap", "docx", "xlsx", "pptx", "odt", "ods", "odp", "odg", "odf", "epub",
+    "gadget", "kmz", "widget", "xpi", "sketch", "pages", "key", "numbers", "hwpx",
 ];
 
 /// Break `<name>.<outer>.<inner>` into `(Some(outer), Some(inner))`.
@@ -116,6 +116,110 @@ fn handle_tar_archive_streaming(
         }
     }
     Ok(CompressedContent::ArchiveFiles(entries_on_disk))
+}
+
+/// Extract every file entry in a ZIP-based archive directly from a byte
+/// slice, without touching the filesystem. Intended for the git-blob
+/// scan path where blobs already sit in memory and writing them out to a
+/// temp file just to read them back imposes substantial overhead in
+/// monorepos with many committed `.jar`/`.zip`/`.apk` artifacts.
+///
+/// `archive_label` is used to construct logical entry paths of the form
+/// `<archive_label>!<entry_name>`, matching the convention used by the
+/// streaming-to-disk path.
+///
+/// The same per-entry decompressed-size cap as the streaming-to-disk
+/// extractor is enforced so that ZIP bombs cannot allocate unbounded
+/// memory.
+/// Maximum compressed archive size that the in-memory ZIP extractor will
+/// accept. Larger archives fall back to the disk-streaming path so that we
+/// never hold both the archive bytes AND every decompressed entry in RAM
+/// simultaneously. The threshold is intentionally generous — most committed
+/// `.jar`/`.zip`/`.apk` artifacts in real repos are well under 64 MB.
+pub const MAX_INMEM_ZIP_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
+
+/// Aggregate cap on total decompressed bytes the in-memory ZIP extractor
+/// will accumulate per archive. Bounds the worst-case footprint of one
+/// rayon worker processing one archive: with `num_jobs` workers running
+/// in parallel, peak resident memory is bounded by `num_jobs * this`.
+/// Independent of the per-entry cap, so a single bomb-style entry can't
+/// drain it all but neither can N medium-sized entries.
+pub const MAX_INMEM_ZIP_DECOMPRESSED_BYTES: u64 = 256 * 1024 * 1024;
+
+pub fn extract_zip_archive_in_memory(
+    data: &[u8],
+    archive_label: &str,
+) -> Result<Vec<(String, Vec<u8>)>> {
+    // Per-entry cap on decompressed bytes: bounds memory cost of zip bombs.
+    // Mirrors the disk-streaming variant's cap.
+    // nosemgrep: this is the defensive cap — do not flag for missing-limit rules.
+    const MAX_ZIP_ENTRY_DECOMPRESSED_BYTES: u64 = 512 * 1024 * 1024;
+
+    let cursor = std::io::Cursor::new(data);
+    let mut zip = ZipArchive::new(cursor)?;
+    let mut entries = Vec::with_capacity(zip.len());
+    let mut total_decompressed: u64 = 0;
+
+    for i in 0..zip.len() {
+        if total_decompressed >= MAX_INMEM_ZIP_DECOMPRESSED_BYTES {
+            tracing::warn!(
+                "in-memory zip {archive_label} exceeded {MAX_INMEM_ZIP_DECOMPRESSED_BYTES} byte aggregate cap at entry {i}/{}; truncating",
+                zip.len()
+            );
+            break;
+        }
+
+        let mut zipped_file = match zip.by_index(i) {
+            Ok(f) => f,
+            Err(e) => {
+                tracing::debug!("zip entry {i} read failed: {e}");
+                continue;
+            }
+        };
+        if !zipped_file.is_file() {
+            continue;
+        }
+        let name_in_zip = zipped_file.name().to_string();
+        // Defense in depth: refuse traversal-style names. The in-memory
+        // path never writes to disk, but downstream code may construct
+        // file URLs from these strings.
+        if !is_safe_extract_path(Path::new(&name_in_zip)) {
+            tracing::warn!("unsafe zip entry name in {archive_label}: {name_in_zip}");
+            continue;
+        }
+
+        // The remaining-budget cap on this read serves two purposes:
+        // (1) honor the aggregate budget exactly even if one entry would
+        //     individually push us over it, and (2) keep the existing
+        //     per-entry zip-bomb cap of 512 MB as a hard upper bound.
+        let remaining = MAX_INMEM_ZIP_DECOMPRESSED_BYTES.saturating_sub(total_decompressed);
+        let entry_cap = remaining.min(MAX_ZIP_ENTRY_DECOMPRESSED_BYTES);
+
+        let mut buf = Vec::new();
+        let mut limited = (&mut zipped_file).take(entry_cap);
+        if let Err(e) = limited.read_to_end(&mut buf) {
+            tracing::debug!(
+                "failed to decompress zip entry {name_in_zip} from {archive_label}: {e}"
+            );
+            continue;
+        }
+        if buf.len() as u64 == entry_cap && entry_cap == MAX_ZIP_ENTRY_DECOMPRESSED_BYTES {
+            tracing::warn!(
+                "zip entry {name_in_zip} in {archive_label} exceeded {MAX_ZIP_ENTRY_DECOMPRESSED_BYTES} byte cap; truncating"
+            );
+        }
+        total_decompressed += buf.len() as u64;
+        entries.push((format!("{archive_label}!{name_in_zip}"), buf));
+    }
+    Ok(entries)
+}
+
+/// Return true if `data` begins with the standard local-file ZIP signature
+/// (`PK\x03\x04`) — used to short-circuit extraction attempts on blobs whose
+/// extension matches a ZIP-based format but whose contents are not actually
+/// a real ZIP (e.g., a stub or partial download).
+pub fn looks_like_zip(data: &[u8]) -> bool {
+    data.len() >= 4 && data[0] == b'P' && data[1] == b'K' && data[2] == 0x03 && data[3] == 0x04
 }
 
 fn handle_zip_archive_streaming(
@@ -691,6 +795,50 @@ mod tests {
                 assert!(found, "secret.txt not extracted from nested archive");
             }
             other => panic!("expected ArchiveFiles after untar inner, got {:?}", other),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn smoke_decompress_apk_archive() -> anyhow::Result<()> {
+        // APKs are ZIP containers. We expect Kingfisher to recognize the .apk
+        // extension and extract its entries so embedded secrets get scanned.
+        let dir = tempdir()?;
+        let apk_path = dir.path().join("aws_leak.apk");
+        let aws_key = "AKIAIOSFODNN7EXAMPLE"; // canonical AWS sample, not real
+
+        {
+            let file = File::create(&apk_path)?;
+            let mut zip = ZipWriter::new(file);
+            let options = SimpleFileOptions::default()
+                .compression_method(CompressionMethod::Deflated)
+                .unix_permissions(0o644);
+
+            zip.start_file("res/values/strings.xml", options)?;
+            zip.write_all(
+                format!(
+                    "<?xml version=\"1.0\"?><resources><string name=\"aws\">{aws_key}</string></resources>"
+                )
+                .as_bytes(),
+            )?;
+            zip.finish()?;
+        }
+
+        let tmp = tempdir()?;
+        let content = decompress_once(&apk_path, Some(tmp.path()))?;
+        if let CompressedContent::ArchiveFiles(files) = content {
+            let mut found = false;
+            for (logical, path) in files {
+                if logical.ends_with("!res/values/strings.xml") {
+                    let txt = std::fs::read_to_string(&path)?;
+                    assert!(txt.contains(aws_key));
+                    found = true;
+                }
+            }
+            assert!(found, "did not find res/values/strings.xml in apk ArchiveFiles");
+        } else {
+            panic!("expected ArchiveFiles for apk archive, got {:?}", content);
         }
 
         Ok(())

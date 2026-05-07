@@ -48,7 +48,7 @@ http = "1.4"
 
 [package]
 name = "kingfisher"
-version = "1.99.0"
+version = "1.100.0"
 description = "MongoDB's blazingly fast and accurate secret scanning and validation tool"
 edition.workspace = true
 rust-version.workspace = true
@@ -251,11 +251,11 @@ proptest = "1.9.0"
 
 [profile.release]
 debug = false
-strip = true #"debuginfo"
+strip = true
 opt-level = 3           # Maximum optimization for performance
 lto = true              # Enable Link Time Optimization
 codegen-units = 1       # Optimize for size but slower compilation
-panic = "abort"           # Remove unwind tables for panics
+panic = "abort"          # Remove unwind tables for panics
 rpath = false           # Don't embed path dependencies
 incremental = false
 

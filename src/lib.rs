@@ -94,6 +94,9 @@ struct EnumeratorConfig {
     repo_scan_timeout: Duration,
     exclude_globset: Option<std::sync::Arc<GlobSet>>,
     git_diff: Option<GitDiffConfig>,
+    /// Whether archive blobs encountered during git scanning should be
+    /// transparently extracted before pattern matching.
+    extract_archives: bool,
 }
 
 pub enum FoundInput {
