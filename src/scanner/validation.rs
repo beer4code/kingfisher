@@ -964,7 +964,14 @@ fn build_cache_key(
     // Build key
     let capture0 = om.captures.captures.get(0).map_or(String::new(), |c| c.raw_value().to_string());
 
-    if !om.rule.syntax().depends_on_rule.is_empty() {
+    let has_context_dependency = om
+        .rule
+        .syntax()
+        .depends_on_rule
+        .iter()
+        .flatten()
+        .any(|dep| !dep.variable.eq_ignore_ascii_case("TOKEN"));
+    if has_context_dependency {
         return format!(
             "{}|{}|{}|{}|{}",
             om.rule.name(),

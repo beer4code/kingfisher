@@ -225,12 +225,11 @@ pub fn extract_zip_archive_in_memory(
     Ok(entries)
 }
 
-/// Return true if `data` begins with the standard local-file ZIP signature
-/// (`PK\x03\x04`) — used to short-circuit extraction attempts on blobs whose
-/// extension matches a ZIP-based format but whose contents are not actually
-/// a real ZIP (e.g., a stub or partial download).
+/// Return true if `data` begins with a standard ZIP signature — used to
+/// short-circuit extraction attempts on blobs whose extension matches a
+/// ZIP-based format but whose contents are not actually a real ZIP.
 pub fn looks_like_zip(data: &[u8]) -> bool {
-    data.len() >= 4 && data[0] == b'P' && data[1] == b'K' && data[2] == 0x03 && data[3] == 0x04
+    matches!(data.get(..4), Some(b"PK\x03\x04" | b"PK\x05\x06" | b"PK\x07\x08"))
 }
 
 fn handle_zip_archive_streaming(

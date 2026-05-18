@@ -189,6 +189,7 @@ hex = { workspace = true, optional = true }
 url = { version = "2.5.7", optional = true }
 # Temporary Git pin: keeps MongoDB SRV validation enabled while using the upstream
 # Hickory 0.26 DNS-resolver fix before it is available in a crates.io release.
+# TODO: switch back to a crates.io mongodb release once it includes that fix.
 mongodb = { git = "https://github.com/mongodb/mongo-rust-driver", rev = "bdddefc50c4794d51d10b944320d42c6eb216b04", default-features = false, features = ["rustls-tls", "aws-auth", "compat-3-0-0", "dns-resolver"], optional = true }
 mysql_async = { version = "0.36.2", default-features = false, features = ["default-rustls"], optional = true }
 tokio-postgres = { version = "0.7", default-features = false, features = ["runtime"], optional = true }
