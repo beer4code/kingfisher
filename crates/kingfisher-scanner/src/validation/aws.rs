@@ -200,9 +200,7 @@ pub fn validate_aws_credentials_input(access_key_id: &str, secret_key: &str) -> 
         return Err("AWS access key ID contains invalid characters".to_string());
     }
     let prefix = &access_key_id[..4];
-    let valid_prefix =
-        matches!(prefix, "AKIA" | "AGPA" | "AIDA" | "AROA" | "AIPA" | "ANPA" | "ANVA" | "ASIA")
-            || prefix.starts_with("A3T");
+    let valid_prefix = matches!(prefix, "AKIA" | "ASIA") || prefix.starts_with("A3T");
     if !valid_prefix {
         return Err("Invalid AWS access key ID format".to_string());
     }

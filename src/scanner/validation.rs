@@ -983,6 +983,18 @@ fn build_cache_key(
     // For demonstration, we’ll do a simplistic approach
     // You can adapt from your existing logic
     let capture0 = om.captures.captures.get(0).map_or(String::new(), |c| c.raw_value().to_string());
+
+    if !om.rule.syntax().depends_on_rule.is_empty() {
+        return format!(
+            "{}|{}|{}|{}|{}",
+            om.rule.name(),
+            capture0,
+            om.blob_id,
+            om.matching_input_offset_span.start,
+            om.matching_input_offset_span.end
+        );
+    }
+
     format!("{}|{}|{}", om.rule.name(), capture0, dep_vars_str)
 }
 

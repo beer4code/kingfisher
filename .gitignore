@@ -23,6 +23,7 @@ logs/*
 !testdata/html_embedded_vulnerable.html
 !docs/viewer/index.html
 !docs-site/overrides/*.html
+private-notes/
 *.dot
 fuzz/*
 !fuzz/Cargo.toml

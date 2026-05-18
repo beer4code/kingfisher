@@ -15,7 +15,7 @@ use http::StatusCode;
 use liquid::Object;
 use liquid_core::{Value, ValueView};
 use reqwest::{Client, Url, header, header::HeaderValue, multipart};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use tokio::{sync::Notify, time};
 use tracing::{debug, trace};
 
@@ -260,7 +260,9 @@ type Cache = kingfisher_scanner::validation::Cache;
 /// Returns an opaque 64-bit key for internal validation deduplication.
 ///
 /// This is an INTERNAL key used only for validation deduplication within a single scan.
-/// It uses `captures.get(0)` to get the primary secret value.
+/// It uses `captures.get(0)` to get the primary secret value. Rules with dependent
+/// variables also include blob location because validation can depend on nearby context
+/// such as an AWS access-key ID paired with a secret access key.
 ///
 /// **Important**: This is distinct from the EXTERNAL `finding_fingerprint` used for:
 /// - Baseline comparisons across scans
@@ -279,6 +281,13 @@ fn validation_dedup_key(m: &OwnedBlobMatch) -> u64 {
     if let Some(val) = capture_value {
         val.hash(&mut hasher);
     }
+
+    if !m.rule.syntax().depends_on_rule.is_empty() {
+        m.blob_id.hash(&mut hasher);
+        m.matching_input_offset_span.start.hash(&mut hasher);
+        m.matching_input_offset_span.end.hash(&mut hasher);
+    }
+
     let key = hasher.finish();
 
     trace!(
@@ -693,7 +702,7 @@ async fn timed_validate_single_match<'a>(
             validate_jwt_rule(m, &captured_values, use_lax_tls, clients.allow_internal_ips).await;
         }
         Some(Validation::AWS) => {
-            validate_aws_rule(m, &captured_values, cache).await;
+            validate_aws_rule(m, &captured_values, dependent_variables, cache).await;
         }
         Some(Validation::GCP) => {
             validate_gcp_rule(m, &globals, cache).await;
@@ -1391,6 +1400,7 @@ async fn validate_jwt_rule(
 async fn validate_aws_rule(
     m: &mut OwnedBlobMatch,
     captured_values: &[(String, String, usize, usize)],
+    dependent_variables: &FxHashMap<String, Vec<(String, OffsetSpan)>>,
     cache: &Cache,
 ) {
     let secret = captured_values
@@ -1398,10 +1408,8 @@ async fn validate_aws_rule(
         .find(|(n, ..)| n == "TOKEN")
         .map(|(_, v, ..)| v.clone())
         .unwrap_or_default();
-    let akid =
-        utils::find_closest_variable(captured_values, &secret, "TOKEN", "AKID").unwrap_or_default();
 
-    if akid.is_empty() || secret.is_empty() {
+    if secret.is_empty() {
         m.validation_success = false;
         m.validation_response_body =
             validation_body::from_string("Missing AWS access-key ID or secret.".to_string());
@@ -1409,77 +1417,171 @@ async fn validate_aws_rule(
         return;
     }
 
-    let cache_key = aws::generate_aws_cache_key(&akid, &secret);
-    if let Some(cached) = cache.get(&cache_key) {
-        let c = cached.value();
-        if c.timestamp.elapsed() < Duration::from_secs(VALIDATION_CACHE_SECONDS) {
-            m.validation_success = c.is_valid;
-            m.validation_response_body = c.body.clone();
-            m.validation_response_status = c.status;
-            return;
-        }
-    }
+    let akid_candidates = aws_akid_candidates(
+        captured_values,
+        dependent_variables.get("AKID"),
+        m.matching_input_offset_span,
+        &secret,
+    );
 
-    if let Some(account_id) = aws::should_skip_aws_validation(&akid) {
-        m.validation_success = false;
-        m.validation_response_body = validation_body::from_string(format!(
-            "(skip list entry) AWS validation not attempted for account {}.",
-            account_id
-        ));
-        m.validation_response_status = StatusCode::PRECONDITION_REQUIRED;
-        cache.insert(
-            cache_key,
-            CachedResponse {
-                body: m.validation_response_body.clone(),
-                status: m.validation_response_status,
-                is_valid: m.validation_success,
-                timestamp: Instant::now(),
-            },
-        );
-        return;
-    }
-
-    if let Err(e) = aws::validate_aws_credentials_input(&akid, &secret) {
+    if akid_candidates.is_empty() {
         m.validation_success = false;
         m.validation_response_body =
-            validation_body::from_string(format!("Invalid AWS credentials ({}): {}", akid, e));
+            validation_body::from_string("Missing AWS access-key ID or secret.".to_string());
         m.validation_response_status = StatusCode::BAD_REQUEST;
         return;
     }
 
-    match aws::validate_aws_credentials(&akid, &secret).await {
-        Ok((ok, msg)) => {
-            m.validation_success = ok;
-            if ok {
-                let mut body = format!("{} --- ARN: {}", akid, msg);
-                if let Ok(acct) = aws::aws_key_to_account_number(&akid) {
-                    body.push_str(&format!(" --- AWS Account Number: {:012}", acct));
+    let mut last_body = None;
+    let mut last_status = StatusCode::UNAUTHORIZED;
+
+    for akid in akid_candidates {
+        let cache_key = aws::generate_aws_cache_key(&akid, &secret);
+        if let Some(cached) = cache.get(&cache_key) {
+            let c = cached.value();
+            if c.timestamp.elapsed() < Duration::from_secs(VALIDATION_CACHE_SECONDS) {
+                if c.is_valid {
+                    m.validation_success = c.is_valid;
+                    m.validation_response_body = c.body.clone();
+                    m.validation_response_status = c.status;
+                    return;
                 }
-                m.validation_response_body = validation_body::from_string(body);
-                m.validation_response_status = StatusCode::OK;
-            } else {
-                m.validation_response_body = validation_body::from_string(format!(
-                    "AWS validation error ({}): {}",
-                    akid, msg
-                ));
-                m.validation_response_status = StatusCode::UNAUTHORIZED;
+                last_body = Some(c.body.clone());
+                last_status = c.status;
+                continue;
             }
+        }
+
+        if let Some(account_id) = aws::should_skip_aws_validation(&akid) {
+            let body = validation_body::from_string(format!(
+                "(skip list entry) AWS validation not attempted for account {}.",
+                account_id
+            ));
             cache.insert(
                 cache_key,
                 CachedResponse {
-                    body: m.validation_response_body.clone(),
-                    status: m.validation_response_status,
-                    is_valid: m.validation_success,
+                    body: body.clone(),
+                    status: StatusCode::PRECONDITION_REQUIRED,
+                    is_valid: false,
                     timestamp: Instant::now(),
                 },
             );
+            last_body = Some(body);
+            last_status = StatusCode::PRECONDITION_REQUIRED;
+            continue;
         }
-        Err(e) => {
-            m.validation_success = false;
-            m.validation_response_body =
-                validation_body::from_string(format!("AWS validation error ({}): {}", akid, e));
-            m.validation_response_status = StatusCode::BAD_GATEWAY;
+
+        if let Err(e) = aws::validate_aws_credentials_input(&akid, &secret) {
+            let body =
+                validation_body::from_string(format!("Invalid AWS credentials ({}): {}", akid, e));
+            cache.insert(
+                cache_key,
+                CachedResponse {
+                    body: body.clone(),
+                    status: StatusCode::BAD_REQUEST,
+                    is_valid: false,
+                    timestamp: Instant::now(),
+                },
+            );
+            last_body = Some(body);
+            last_status = StatusCode::BAD_REQUEST;
+            continue;
         }
+
+        match aws::validate_aws_credentials(&akid, &secret).await {
+            Ok((ok, msg)) => {
+                if ok {
+                    m.validation_success = true;
+                    let mut body = format!("{} --- ARN: {}", akid, msg);
+                    if let Ok(acct) = aws::aws_key_to_account_number(&akid) {
+                        body.push_str(&format!(" --- AWS Account Number: {:012}", acct));
+                    }
+                    m.validation_response_body = validation_body::from_string(body);
+                    m.validation_response_status = StatusCode::OK;
+                    cache.insert(
+                        cache_key,
+                        CachedResponse {
+                            body: m.validation_response_body.clone(),
+                            status: m.validation_response_status,
+                            is_valid: true,
+                            timestamp: Instant::now(),
+                        },
+                    );
+                    return;
+                }
+
+                let body = validation_body::from_string(format!(
+                    "AWS validation error ({}): {}",
+                    akid, msg
+                ));
+                cache.insert(
+                    cache_key,
+                    CachedResponse {
+                        body: body.clone(),
+                        status: StatusCode::UNAUTHORIZED,
+                        is_valid: false,
+                        timestamp: Instant::now(),
+                    },
+                );
+                last_body = Some(body);
+                last_status = StatusCode::UNAUTHORIZED;
+            }
+            Err(e) => {
+                last_body = Some(validation_body::from_string(format!(
+                    "AWS validation error ({}): {}",
+                    akid, e
+                )));
+                last_status = StatusCode::BAD_GATEWAY;
+            }
+        }
+    }
+
+    m.validation_success = false;
+    m.validation_response_body = last_body.unwrap_or_else(|| {
+        validation_body::from_string("AWS validation failed for all nearby access-key IDs.")
+    });
+    m.validation_response_status = last_status;
+}
+
+fn aws_akid_candidates(
+    captured_values: &[(String, String, usize, usize)],
+    dependent_akids: Option<&Vec<(String, OffsetSpan)>>,
+    target_span: OffsetSpan,
+    secret: &str,
+) -> Vec<String> {
+    let mut candidates = Vec::new();
+
+    if let Some(closest) =
+        utils::find_closest_variable(captured_values, &secret.to_string(), "TOKEN", "AKID")
+    {
+        candidates.push((0usize, closest));
+    }
+
+    if let Some(values) = dependent_akids {
+        candidates.extend(
+            values
+                .iter()
+                .map(|(value, span)| (dependency_distance(*span, target_span), value.clone())),
+        );
+    }
+
+    candidates.sort_by_key(|(distance, _)| *distance);
+
+    let mut seen = FxHashSet::default();
+    candidates
+        .into_iter()
+        .filter_map(|(_, value)| if seen.insert(value.clone()) { Some(value) } else { None })
+        .take(64)
+        .collect()
+}
+
+fn dependency_distance(span: OffsetSpan, target_span: OffsetSpan) -> usize {
+    if span.end <= target_span.start {
+        target_span.start - span.end
+    } else if span.start >= target_span.end {
+        span.start - target_span.end
+    } else {
+        0
     }
 }
 

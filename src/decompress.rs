@@ -23,18 +23,18 @@ pub const ZIP_BASED_FORMATS: &[&str] = &[
     "kmz", "widget", "xpi", "sketch", "pages", "key", "numbers", "hwpx",
 ];
 
-/// Break `<name>.<outer>.<inner>` into `(Some(outer), Some(inner))`.
-/// For `foo.tar.gz` this returns `("tar", "gz")`.
-fn split_extensions(path: &Path) -> (Option<String>, Option<String>) {
-    let ext_inner = path.extension().and_then(|e| e.to_str()).map(|s| s.to_ascii_lowercase());
+fn is_tar_wrapped_compression(path: &Path) -> bool {
+    let filename = match path.file_name().and_then(|s| s.to_str()) {
+        Some(name) => name.to_ascii_lowercase(),
+        None => return false,
+    };
 
-    let ext_outer = path
-        .file_stem()
-        .and_then(|s| Path::new(s).extension())
-        .and_then(|e| e.to_str())
-        .map(|s| s.to_ascii_lowercase());
-
-    (ext_outer, ext_inner)
+    filename.ends_with(".tgz")
+        || filename.ends_with(".tar.gz")
+        || filename.ends_with(".tar.gzip")
+        || filename.ends_with(".tar.bz2")
+        || filename.ends_with(".tar.bzip2")
+        || filename.ends_with(".tar.xz")
 }
 
 #[derive(Debug)]
@@ -450,7 +450,7 @@ fn decompress_once(path: &Path, base_dir: Option<&Path>) -> Result<CompressedCon
                     return handle_zip_archive_streaming(&mut file, path, temp.path());
                 }
             }
-            "gz" | "gzip" => {
+            "gz" | "gzip" | "tgz" => {
                 let out_path = make_output_path(path, base_dir, "decomp.tar");
                 let decoder = GzDecoder::new(BufReader::new(safe_open_for_read(path)?));
                 return stream_to_file(decoder, &out_path);
@@ -487,12 +487,13 @@ pub fn decompress_file(path: &Path, base_dir: Option<&Path>) -> Result<Compresse
     let mut owned_buf: Option<PathBuf>;
 
     loop {
+        let should_extract_tar = is_tar_wrapped_compression(current_path);
         let content = decompress_once(current_path, base_dir)?;
 
         // If the step produced a single on-disk file that is itself a .tar,
         // recurse on that file.
         if let CompressedContent::RawFile(ref p) = content {
-            if split_extensions(p).0.as_deref() == Some("tar") {
+            if should_extract_tar {
                 owned_buf = Some(p.clone()); // own the path
                 current_path = owned_buf.as_ref().unwrap();
                 continue;
@@ -570,7 +571,7 @@ mod tests {
     use tempfile::tempdir;
     use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
-    use super::{CompressedContent, decompress_once};
+    use super::{CompressedContent, decompress_file_to_temp, decompress_once};
 
     /// 1) Fully unpack:
     ///    - 1st decompress `.gz` -- get a `.tar` file
@@ -622,6 +623,45 @@ mod tests {
             assert!(found, "did not find secret.txt in ArchiveFiles");
         } else {
             panic!("expected ArchiveFiles on second pass, got {:?}", content);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn smoke_decompress_tgz_archive() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let tgz = dir.path().join("payload.tgz");
+        let github_pat = "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"; // this is not a real secret
+
+        {
+            let f = File::create(&tgz)?;
+            let gz = GzEncoder::new(f, Compression::default());
+            let mut tar = Builder::new(gz);
+
+            let data = format!("token={github_pat}\n");
+            let mut hdr = tar::Header::new_gnu();
+            hdr.set_size(data.len() as u64);
+            hdr.set_mode(0o644);
+            hdr.set_cksum();
+            tar.append_data(&mut hdr, "secret.txt", data.as_bytes())?;
+
+            tar.into_inner()?.finish()?;
+        }
+
+        let (content, _tmp) = decompress_file_to_temp(&tgz)?;
+        if let CompressedContent::ArchiveFiles(files) = content {
+            let mut found = false;
+            for (logical, path) in files {
+                if logical.ends_with("payload.tgz!secret.txt") {
+                    let txt = std::fs::read_to_string(&path)?;
+                    assert!(txt.contains(github_pat));
+                    found = true;
+                }
+            }
+            assert!(found, "did not find secret.txt in tgz ArchiveFiles");
+        } else {
+            panic!("expected ArchiveFiles for tgz archive, got {:?}", content);
         }
 
         Ok(())
