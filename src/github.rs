@@ -154,6 +154,22 @@ fn github_get(client: &reqwest::Client, url: Url, token: Option<&str>) -> reqwes
     if let Some(token) = token { req.bearer_auth(token) } else { req }
 }
 
+async fn ensure_github_success(resp: reqwest::Response, action: &str) -> Result<reqwest::Response> {
+    if resp.status().is_success() {
+        return Ok(resp);
+    }
+
+    let status = resp.status();
+    let url = resp.url().clone();
+    warn_on_rate_limit("GitHub", status, action);
+
+    let mut body = resp.text().await.unwrap_or_default();
+    if body.len() > 512 {
+        body.truncate(512);
+    }
+    anyhow::bail!("GitHub API request failed while {action}: HTTP {status} ({url}): {body}");
+}
+
 async fn fetch_github_orgs(
     client: &reqwest::Client,
     api_base: &Url,
@@ -165,11 +181,11 @@ async fn fetch_github_orgs(
     loop {
         let mut url = api_base.join("organizations").context("Failed to build GitHub orgs URL")?;
         url.query_pairs_mut().append_pair("per_page", "100").append_pair("page", &page.to_string());
-        let resp = github_get(client, url, token).send().await?;
-        if !resp.status().is_success() {
-            warn_on_rate_limit("GitHub", resp.status(), "listing organizations");
-            break;
-        }
+        let resp = ensure_github_success(
+            github_get(client, url, token).send().await?,
+            "listing organizations",
+        )
+        .await?;
         let page_orgs: Vec<GitHubOrg> = resp.json().await?;
         if page_orgs.is_empty() {
             break;
@@ -200,11 +216,8 @@ async fn fetch_github_repos(
             .append_pair("type", repo_type)
             .append_pair("sort", "created")
             .append_pair("direction", "desc");
-        let resp = github_get(client, url, token).send().await?;
-        if !resp.status().is_success() {
-            warn_on_rate_limit("GitHub", resp.status(), action);
-            break;
-        }
+        let resp =
+            ensure_github_success(github_get(client, url, token).send().await?, action).await?;
         let page_repos: Vec<GitHubRepo> = resp.json().await?;
         if page_repos.is_empty() {
             break;
@@ -239,11 +252,11 @@ pub async fn enumerate_contributor_repo_urls(
             .join(&format!("repos/{owner}/{repo}/contributors"))
             .context("Failed to build GitHub contributors URL")?;
         url.query_pairs_mut().append_pair("per_page", "100").append_pair("page", &page.to_string());
-        let resp = github_get(&client, url, token.as_deref()).send().await?;
-        if !resp.status().is_success() {
-            warn_on_rate_limit("GitHub", resp.status(), "listing contributors");
-            break;
-        }
+        let resp = ensure_github_success(
+            github_get(&client, url, token.as_deref()).send().await?,
+            "listing contributors",
+        )
+        .await?;
         let contributors: Vec<GitHubContributor> = resp.json().await?;
         if contributors.is_empty() {
             break;
@@ -296,11 +309,11 @@ pub async fn enumerate_contributor_repo_urls(
                 .append_pair("type", "all")
                 .append_pair("sort", "updated")
                 .append_pair("direction", "desc");
-            let resp = github_get(&client, url, token.as_deref()).send().await?;
-            if !resp.status().is_success() {
-                warn_on_rate_limit("GitHub", resp.status(), "listing user repositories");
-                break;
-            }
+            let resp = ensure_github_success(
+                github_get(&client, url, token.as_deref()).send().await?,
+                "listing user repositories",
+            )
+            .await?;
             let repos: Vec<GitHubRepo> = resp.json().await?;
             if repos.is_empty() {
                 break;
