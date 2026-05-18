@@ -715,7 +715,7 @@ fn try_extract_git_blob_archive(
         },
     };
 
-    Ok(Some(entries))
+    if entries.is_empty() { Ok(None) } else { Ok(Some(entries)) }
 }
 
 // A marker so the struct itself carries the lifetime.

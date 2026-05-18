@@ -962,16 +962,6 @@ fn build_cache_key(
     dep_vars: &FxHashMap<String, Vec<(String, OffsetSpan)>>,
 ) -> String {
     // Build key
-    let dep_vars_str = dep_vars
-        .get(om.rule.id())
-        .map(|hm| {
-            let mut sorted: Vec<_> = hm.iter().collect();
-            sorted.sort_by(|(k, _), (k2, _)| k.cmp(k2));
-            sorted.into_iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join("|")
-        })
-        .unwrap_or_default();
-    // For demonstration, we’ll do a simplistic approach
-    // You can adapt from your existing logic
     let capture0 = om.captures.captures.get(0).map_or(String::new(), |c| c.raw_value().to_string());
 
     if !om.rule.syntax().depends_on_rule.is_empty() {
@@ -984,6 +974,15 @@ fn build_cache_key(
             om.matching_input_offset_span.end
         );
     }
+
+    let dep_vars_str = dep_vars
+        .get(om.rule.id())
+        .map(|hm| {
+            let mut sorted: Vec<_> = hm.iter().collect();
+            sorted.sort_by(|(k, _), (k2, _)| k.cmp(k2));
+            sorted.into_iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join("|")
+        })
+        .unwrap_or_default();
 
     format!("{}|{}|{}", om.rule.name(), capture0, dep_vars_str)
 }

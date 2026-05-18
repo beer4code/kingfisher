@@ -171,6 +171,10 @@ async fn ensure_github_success(resp: reqwest::Response, action: &str) -> Result<
     anyhow::bail!("GitHub API request failed while {action}: HTTP {status} ({url}): {body}");
 }
 
+fn is_github_soft_limit_status(status: StatusCode) -> bool {
+    matches!(status, StatusCode::FORBIDDEN | StatusCode::TOO_MANY_REQUESTS)
+}
+
 fn github_next_link(headers: &HeaderMap) -> Option<Url> {
     let raw = headers.get(reqwest::header::LINK)?.to_str().ok()?;
     raw.split(',').find_map(|part| {
@@ -267,11 +271,12 @@ pub async fn enumerate_contributor_repo_urls(
             .join(&format!("repos/{owner}/{repo}/contributors"))
             .context("Failed to build GitHub contributors URL")?;
         url.query_pairs_mut().append_pair("per_page", "100").append_pair("page", &page.to_string());
-        let resp = ensure_github_success(
-            github_get(&client, url, token.as_deref()).send().await?,
-            "listing contributors",
-        )
-        .await?;
+        let resp = github_get(&client, url, token.as_deref()).send().await?;
+        if is_github_soft_limit_status(resp.status()) {
+            warn_on_rate_limit("GitHub", resp.status(), "listing contributors");
+            break;
+        }
+        let resp = ensure_github_success(resp, "listing contributors").await?;
         let contributors: Vec<GitHubContributor> = resp.json().await?;
         if contributors.is_empty() {
             break;
@@ -324,11 +329,12 @@ pub async fn enumerate_contributor_repo_urls(
                 .append_pair("type", "all")
                 .append_pair("sort", "updated")
                 .append_pair("direction", "desc");
-            let resp = ensure_github_success(
-                github_get(&client, url, token.as_deref()).send().await?,
-                "listing user repositories",
-            )
-            .await?;
+            let resp = github_get(&client, url, token.as_deref()).send().await?;
+            if is_github_soft_limit_status(resp.status()) {
+                warn_on_rate_limit("GitHub", resp.status(), "listing user repositories");
+                break;
+            }
+            let resp = ensure_github_success(resp, "listing user repositories").await?;
             let repos: Vec<GitHubRepo> = resp.json().await?;
             if repos.is_empty() {
                 break;
