@@ -9,6 +9,7 @@ use std::{
 use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::StatusCode;
+use reqwest::header::HeaderMap;
 use serde::Deserialize;
 use serde_json::Value;
 use tracing::{info, warn};
@@ -170,28 +171,42 @@ async fn ensure_github_success(resp: reqwest::Response, action: &str) -> Result<
     anyhow::bail!("GitHub API request failed while {action}: HTTP {status} ({url}): {body}");
 }
 
+fn github_next_link(headers: &HeaderMap) -> Option<Url> {
+    let raw = headers.get(reqwest::header::LINK)?.to_str().ok()?;
+    raw.split(',').find_map(|part| {
+        let (url_part, params) = part.trim().split_once(';')?;
+        if !params.split(';').any(|param| param.trim() == "rel=\"next\"") {
+            return None;
+        }
+        let url = url_part.trim().strip_prefix('<')?.strip_suffix('>')?;
+        Url::parse(url).ok()
+    })
+}
+
 async fn fetch_github_orgs(
     client: &reqwest::Client,
     api_base: &Url,
     token: Option<&str>,
 ) -> Result<Vec<String>> {
     let mut orgs = Vec::new();
-    let mut page = 1;
-
-    loop {
+    let mut next_url = {
         let mut url = api_base.join("organizations").context("Failed to build GitHub orgs URL")?;
-        url.query_pairs_mut().append_pair("per_page", "100").append_pair("page", &page.to_string());
+        url.query_pairs_mut().append_pair("per_page", "100");
+        Some(url)
+    };
+
+    while let Some(url) = next_url {
         let resp = ensure_github_success(
             github_get(client, url, token).send().await?,
             "listing organizations",
         )
         .await?;
+        next_url = github_next_link(resp.headers());
         let page_orgs: Vec<GitHubOrg> = resp.json().await?;
         if page_orgs.is_empty() {
             break;
         }
         orgs.extend(page_orgs.into_iter().map(|org| org.login));
-        page += 1;
     }
 
     Ok(orgs)
@@ -725,5 +740,30 @@ mod tests {
         let excludes = build_exclude_matcher(&vec!["owner/*-archive".to_string()]);
         assert!(should_exclude_repo("https://github.com/owner/project-archive.git", &excludes));
         assert!(!should_exclude_repo("https://github.com/owner/project.git", &excludes));
+    }
+
+    #[test]
+    fn github_next_link_parses_next_relation() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            reqwest::header::LINK,
+            r#"<https://api.github.com/organizations?since=42>; rel="next", <https://api.github.com/organizations?since=1>; rel="first""#
+                .parse()
+                .unwrap(),
+        );
+
+        let next = github_next_link(&headers).unwrap();
+        assert_eq!(next.as_str(), "https://api.github.com/organizations?since=42");
+    }
+
+    #[test]
+    fn github_next_link_returns_none_without_next_relation() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            reqwest::header::LINK,
+            r#"<https://api.github.com/organizations?since=1>; rel="first""#.parse().unwrap(),
+        );
+
+        assert!(github_next_link(&headers).is_none());
     }
 }

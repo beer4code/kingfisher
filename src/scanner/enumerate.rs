@@ -1446,12 +1446,12 @@ fn reference_candidates(reference: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
     use std::path::Path;
+    use std::{fs, io::Write};
 
     use super::{
         FileResult, GitBlobSource, GitDiffConfig, ParallelBlobIterator, enumerate_git_diff_repo,
-        reference_candidates,
+        reference_candidates, try_extract_git_blob_archive,
     };
     use anyhow::Result;
     use bstr::ByteSlice;
@@ -1460,6 +1460,7 @@ mod tests {
     use rayon::iter::ParallelIterator;
     use rusqlite::Connection;
     use tempfile::tempdir;
+    use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
     #[test]
     fn reference_candidates_for_plain_branch() {
@@ -1556,6 +1557,28 @@ mod tests {
         let appearance_path = blob.first_seen[0].path.to_str_lossy();
         assert_eq!(appearance_path, "secret.txt");
 
+        Ok(())
+    }
+
+    #[test]
+    fn git_blob_archive_extraction_preserves_repo_relative_paths() -> Result<()> {
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        {
+            let mut zip = ZipWriter::new(&mut cursor);
+            let options = SimpleFileOptions::default()
+                .compression_method(CompressionMethod::Deflated)
+                .unix_permissions(0o644);
+            zip.start_file("nested/secret.txt", options)?;
+            zip.write_all(b"token=not-a-real-secret")?;
+            zip.finish()?;
+        }
+
+        let entries = try_extract_git_blob_archive("dir/payload.zip", &cursor.into_inner())?
+            .expect("zip blob should extract");
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].0, "dir/payload.zip!nested/secret.txt");
+        assert_eq!(entries[0].1, b"token=not-a-real-secret");
         Ok(())
     }
 

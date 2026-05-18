@@ -1849,6 +1849,47 @@ mod tests {
     }
 
     #[test]
+    fn aws_akid_candidates_orders_by_proximity_and_deduplicates() {
+        let captured_values = vec![
+            ("TOKEN".to_string(), "secret".to_string(), 100usize, 140usize),
+            ("AKID".to_string(), "closest_capture".to_string(), 80usize, 90usize),
+        ];
+        let dependent_akids = vec![
+            ("far_before".to_string(), OffsetSpan::from_range(10..20)),
+            ("near_after".to_string(), OffsetSpan::from_range(150..160)),
+            ("overlap".to_string(), OffsetSpan::from_range(110..120)),
+            ("closest_capture".to_string(), OffsetSpan::from_range(80..90)),
+        ];
+
+        let candidates = aws_akid_candidates(
+            &captured_values,
+            Some(&dependent_akids),
+            OffsetSpan::from_range(100..140),
+            "secret",
+        );
+
+        assert_eq!(candidates, vec!["closest_capture", "overlap", "near_after", "far_before"]);
+    }
+
+    #[test]
+    fn aws_akid_candidates_caps_unique_candidates() {
+        let dependent_akids = (0..70)
+            .map(|i| (format!("akid{i}"), OffsetSpan::from_range((i * 2)..(i * 2 + 1))))
+            .collect::<Vec<_>>();
+
+        let candidates = aws_akid_candidates(
+            &[],
+            Some(&dependent_akids),
+            OffsetSpan::from_range(1_000..1_010),
+            "secret",
+        );
+
+        assert_eq!(candidates.len(), 64);
+        assert_eq!(candidates.first().map(String::as_str), Some("akid69"));
+        assert_eq!(candidates.last().map(String::as_str), Some("akid6"));
+    }
+
+    #[test]
     fn truncate_to_char_boundary_handles_multibyte_characters() {
         let max_len = 2048;
         let mut body = "a".repeat(max_len);
