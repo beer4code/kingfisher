@@ -1001,8 +1001,9 @@ fn maybe_record_access_map(om: &OwnedBlobMatch, collector: Option<&AccessMapColl
                 .map(|(_, value, ..)| value.clone())
                 .unwrap_or_default();
 
-            let mut akid = utils::find_closest_variable(&captures, &secret, "TOKEN", "AKID")
-                .unwrap_or_default();
+            let mut akid =
+                utils::find_closest_variable(&captures, secret.as_str(), "TOKEN", "AKID")
+                    .unwrap_or_default();
 
             if akid.is_empty() {
                 akid = extract_akid_from_body(&om.validation_response_body).unwrap_or_default();
@@ -1026,7 +1027,7 @@ fn maybe_record_access_map(om: &OwnedBlobMatch, collector: Option<&AccessMapColl
                 .map(|(_, value, ..)| value.clone())
                 .unwrap_or_default();
             let storage_account =
-                utils::find_closest_variable(&captures, &storage_key, "TOKEN", "AZURENAME")
+                utils::find_closest_variable(&captures, storage_key.as_str(), "TOKEN", "AZURENAME")
                     .unwrap_or_default();
 
             let mut storage_account = storage_account;
@@ -1081,9 +1082,13 @@ fn maybe_record_access_map(om: &OwnedBlobMatch, collector: Option<&AccessMapColl
                     .find(|(name, ..)| name == "TOKEN")
                     .map(|(_, value, ..)| value.clone())
                     .unwrap_or_default();
-                let mut organization =
-                    utils::find_closest_variable(&captures, &token, "TOKEN", "AZURE_DEVOPS_ORG")
-                        .unwrap_or_default();
+                let mut organization = utils::find_closest_variable(
+                    &captures,
+                    token.as_str(),
+                    "TOKEN",
+                    "AZURE_DEVOPS_ORG",
+                )
+                .unwrap_or_default();
                 if organization.is_empty() {
                     organization = extract_azure_devops_org_from_body(&om.validation_response_body)
                         .unwrap_or_default();
@@ -1100,7 +1105,7 @@ fn maybe_record_access_map(om: &OwnedBlobMatch, collector: Option<&AccessMapColl
                     .map(|(_, value, ..)| value.clone())
                     .unwrap_or_default();
                 let access_key =
-                    utils::find_closest_variable(&captures, &secret_key, "TOKEN", "AKID")
+                    utils::find_closest_variable(&captures, secret_key.as_str(), "TOKEN", "AKID")
                         .or_else(|| om.dependent_captures.get("AKID").cloned())
                         .unwrap_or_default();
 
@@ -1114,14 +1119,22 @@ fn maybe_record_access_map(om: &OwnedBlobMatch, collector: Option<&AccessMapColl
                     .find(|(name, ..)| name == "TOKEN")
                     .map(|(_, value, ..)| value.clone())
                     .unwrap_or_default();
-                let access_key =
-                    utils::find_closest_variable(&captures, &secret_key, "TOKEN", "STS_AKID")
-                        .or_else(|| om.dependent_captures.get("STS_AKID").cloned())
-                        .unwrap_or_default();
-                let session_token =
-                    utils::find_closest_variable(&captures, &secret_key, "TOKEN", "SECURITY_TOKEN")
-                        .or_else(|| om.dependent_captures.get("SECURITY_TOKEN").cloned())
-                        .unwrap_or_default();
+                let access_key = utils::find_closest_variable(
+                    &captures,
+                    secret_key.as_str(),
+                    "TOKEN",
+                    "STS_AKID",
+                )
+                .or_else(|| om.dependent_captures.get("STS_AKID").cloned())
+                .unwrap_or_default();
+                let session_token = utils::find_closest_variable(
+                    &captures,
+                    secret_key.as_str(),
+                    "TOKEN",
+                    "SECURITY_TOKEN",
+                )
+                .or_else(|| om.dependent_captures.get("SECURITY_TOKEN").cloned())
+                .unwrap_or_default();
 
                 if !access_key.is_empty() && !secret_key.is_empty() && !session_token.is_empty() {
                     collector.record_alibaba(

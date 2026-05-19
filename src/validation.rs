@@ -1195,7 +1195,7 @@ async fn validate_azure_storage(
         .map(|(_, v, ..)| v.clone())
         .unwrap_or_default();
     let storage_account =
-        utils::find_closest_variable(captured_values, &storage_key, "TOKEN", "AZURENAME")
+        utils::find_closest_variable(captured_values, storage_key.as_str(), "TOKEN", "AZURENAME")
             .unwrap_or_default();
 
     if storage_account.is_empty() || storage_key.is_empty() {

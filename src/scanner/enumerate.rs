@@ -718,6 +718,12 @@ fn try_extract_git_blob_archive(
     if entries.is_empty() { Ok(None) } else { Ok(Some(entries)) }
 }
 
+fn archive_entry_suffix<'a>(entry_logical: &'a str, archive_path: &str) -> Option<&'a str> {
+    entry_logical.strip_prefix(archive_path).filter(|suffix| suffix.starts_with('!')).or_else(
+        || entry_logical.split_once('!').map(|(archive, _)| &entry_logical[archive.len()..]),
+    )
+}
+
 // A marker so the struct itself carries the lifetime.
 struct GitRepoResultIter<'a> {
     inner: GitRepoResult,
@@ -798,12 +804,21 @@ impl<'a> rayon::iter::ParallelIterator for GitRepoResultIter<'a> {
                             Ok(Some(entries)) => {
                                 let mut out = Vec::with_capacity(entries.len());
                                 for (entry_logical, entry_bytes) in entries {
+                                    let entry_suffix =
+                                        archive_entry_suffix(&entry_logical, &archive_path);
                                     let origin =
                                         OriginSet::try_from_iter(md.first_seen.iter().map(|e| {
+                                            let repo_relative_path =
+                                                String::from_utf8_lossy(&e.path).to_string();
+                                            let per_appearance_logical = entry_suffix
+                                                .map(|suffix| {
+                                                    format!("{repo_relative_path}{suffix}")
+                                                })
+                                                .unwrap_or_else(|| entry_logical.clone());
                                             Origin::from_git_repo_with_first_commit(
                                                 Arc::clone(&repo_path),
                                                 Arc::clone(&e.commit_metadata),
-                                                entry_logical.clone(),
+                                                per_appearance_logical,
                                             )
                                         }))
                                         .unwrap_or_else(
@@ -1558,6 +1573,18 @@ mod tests {
         assert_eq!(appearance_path, "secret.txt");
 
         Ok(())
+    }
+
+    #[test]
+    fn archive_entry_suffix_preserves_entry_component() {
+        assert_eq!(
+            super::archive_entry_suffix("dir/archive.zip!nested/secret.txt", "dir/archive.zip"),
+            Some("!nested/secret.txt")
+        );
+        assert_eq!(
+            super::archive_entry_suffix("archive.zip!nested/secret.txt", "other/archive.zip"),
+            Some("!nested/secret.txt")
+        );
     }
 
     #[test]
