@@ -246,8 +246,19 @@ fn handle_zip_archive_streaming(
 
     let mut zip = ZipArchive::new(file)?;
     let mut entries_on_disk = Vec::new();
+    let mut total_decompressed: u64 = 0;
 
     for i in 0..zip.len() {
+        if total_decompressed >= MAX_INMEM_ZIP_DECOMPRESSED_BYTES {
+            tracing::warn!(
+                "zip archive {} exceeded {} byte aggregate cap at entry {i}/{}; truncating",
+                archive_path.display(),
+                MAX_INMEM_ZIP_DECOMPRESSED_BYTES,
+                zip.len()
+            );
+            break;
+        }
+
         let mut zipped_file = zip.by_index(i)?;
         if zipped_file.is_file() {
             let name_in_zip = zipped_file.name().to_string();
@@ -266,7 +277,10 @@ fn handle_zip_archive_streaming(
             }
             match fs::File::create(&out_path) {
                 Ok(mut out_file) => {
-                    let mut limited = (&mut zipped_file).take(MAX_ZIP_ENTRY_DECOMPRESSED_BYTES);
+                    let remaining =
+                        MAX_INMEM_ZIP_DECOMPRESSED_BYTES.saturating_sub(total_decompressed);
+                    let entry_cap = remaining.min(MAX_ZIP_ENTRY_DECOMPRESSED_BYTES);
+                    let mut limited = (&mut zipped_file).take(entry_cap);
                     let copied = match std::io::copy(&mut limited, &mut out_file) {
                         Ok(n) => n,
                         Err(e) => {
@@ -274,7 +288,8 @@ fn handle_zip_archive_streaming(
                             continue;
                         }
                     };
-                    if copied == MAX_ZIP_ENTRY_DECOMPRESSED_BYTES {
+                    total_decompressed += copied;
+                    if copied == entry_cap && entry_cap == MAX_ZIP_ENTRY_DECOMPRESSED_BYTES {
                         tracing::warn!(
                             "zip entry {} exceeded {} byte cap; truncating",
                             out_path.display(),
@@ -282,6 +297,14 @@ fn handle_zip_archive_streaming(
                         );
                     }
                     entries_on_disk.push((logical_path, out_path));
+                    if total_decompressed >= MAX_INMEM_ZIP_DECOMPRESSED_BYTES {
+                        tracing::warn!(
+                            "zip archive {} reached {} byte aggregate cap; truncating remaining entries",
+                            archive_path.display(),
+                            MAX_INMEM_ZIP_DECOMPRESSED_BYTES
+                        );
+                        break;
+                    }
                 }
                 Err(e) => {
                     tracing::debug!("failed to create file {}: {}", out_path.display(), e);
