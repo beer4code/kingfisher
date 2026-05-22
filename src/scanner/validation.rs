@@ -17,7 +17,7 @@ use liquid::Parser;
 use reqwest::StatusCode;
 use rustc_hash::{FxHashMap, FxHashSet};
 use tokio::{sync::Notify, time::timeout};
-use tracing::trace;
+use tracing::{trace, warn};
 
 use crate::{
     access_map::AccessMapRequest,
@@ -901,26 +901,28 @@ async fn validate_single(
     }
     // If we reach here, we're the first task to validate this key
     // Perform validation
-    let outcome = timeout(
-        validation_timeout,
-        catch_validation_panic(
-            validate_single_match(
-                om,
-                parser,
-                clients,
-                dep_vars,
-                missing_deps,
-                cache2,
-                validation_timeout,
-                validation_retries,
-                rate_limiter,
-                provider_endpoints.as_ref(),
-                max_body_len,
-            )
-            .boxed(),
-        ),
-    )
-    .await;
+    let outcome = ValidationOutcome::from_timeout_result(
+        timeout(
+            validation_timeout,
+            catch_validation_panic(
+                validate_single_match(
+                    om,
+                    parser,
+                    clients,
+                    dep_vars,
+                    missing_deps,
+                    cache2,
+                    validation_timeout,
+                    validation_retries,
+                    rate_limiter,
+                    provider_endpoints.as_ref(),
+                    max_body_len,
+                )
+                .boxed(),
+            ),
+        )
+        .await,
+    );
     apply_validation_outcome(om, &cache_key, outcome, success_count, fail_count, cache);
     maybe_record_access_map(om, access_map);
     // Remove from `in_progress`
@@ -931,16 +933,43 @@ async fn validate_single(
     }
 }
 
+/// Result of attempting to validate a single match.
+///
+/// Flattens the `timeout(catch_validation_panic(..))` nesting into one
+/// self-describing enum so call sites and signatures stay readable.
+enum ValidationOutcome {
+    /// Validation ran to completion; the match's own fields describe whether it
+    /// succeeded or failed.
+    Completed,
+    /// Validation panicked. The payload is captured for logging only and must
+    /// never be surfaced to the user or cache (it may embed secret material).
+    Panicked(String),
+    /// Validation exceeded the configured timeout.
+    TimedOut,
+}
+
+impl ValidationOutcome {
+    fn from_timeout_result(
+        result: std::result::Result<std::result::Result<(), String>, tokio::time::error::Elapsed>,
+    ) -> Self {
+        match result {
+            Ok(Ok(())) => ValidationOutcome::Completed,
+            Ok(Err(panic_message)) => ValidationOutcome::Panicked(panic_message),
+            Err(_) => ValidationOutcome::TimedOut,
+        }
+    }
+}
+
 fn apply_validation_outcome(
     om: &mut OwnedBlobMatch,
     cache_key: &str,
-    outcome: std::result::Result<std::result::Result<(), String>, tokio::time::error::Elapsed>,
+    outcome: ValidationOutcome,
     success_count: &AtomicUsize,
     fail_count: &AtomicUsize,
     cache: &DashMap<String, CachedResponse>,
 ) {
     match outcome {
-        Ok(Ok(())) => {
+        ValidationOutcome::Completed => {
             if om.validation_success && is_counted_validation_status(om.validation_response_status)
             {
                 success_count.fetch_add(1, Ordering::Relaxed);
@@ -957,12 +986,20 @@ fn apply_validation_outcome(
                 },
             );
         }
-        Ok(Err(panic_message)) => {
+        ValidationOutcome::Panicked(panic_message) => {
+            // The panic payload can embed secret material (e.g. a token captured
+            // in a debug string), so it must never reach the cached or
+            // user-visible body. Emit the detail through structured logging
+            // (truncated), and keep the visible body to the stable rule id.
+            warn!(
+                rule_id = %om.rule.id(),
+                panic = %truncate_for_log(&panic_message),
+                "validator panicked; marking match as failed",
+            );
             om.validation_success = false;
             om.validation_response_body = validation_body::from_string(format!(
-                "Validation panicked for rule {}: {}",
-                om.rule.id(),
-                panic_message
+                "Validation panicked for rule {}",
+                om.rule.id()
             ));
             om.validation_response_status = http::StatusCode::INTERNAL_SERVER_ERROR;
             fail_count.fetch_add(1, Ordering::Relaxed);
@@ -976,7 +1013,7 @@ fn apply_validation_outcome(
                 },
             );
         }
-        Err(_) => {
+        ValidationOutcome::TimedOut => {
             om.validation_success = false;
             om.validation_response_body = validation_body::from_string("Validation timed out");
             om.validation_response_status = http::StatusCode::REQUEST_TIMEOUT;
@@ -989,6 +1026,20 @@ fn is_counted_validation_status(status: StatusCode) -> bool {
     !matches!(status, StatusCode::CONTINUE | StatusCode::PRECONDITION_REQUIRED)
 }
 
+/// Defensive, last-resort boundary around a validator future.
+///
+/// Validators perform network I/O and parse untrusted responses, so a stray
+/// `panic!`/`unwrap` would otherwise tear down the entire scan. We catch the
+/// unwind here and surface it as `Err(message)` so the caller can fail just the
+/// one match.
+///
+/// `AssertUnwindSafe` is required because the future borrows `&mut om`. It is
+/// sound for this use because the unwind is never observed as a partial result:
+/// on the panic path [`apply_validation_outcome`] unconditionally overwrites the
+/// match's validation fields (`validation_success`, `validation_response_status`,
+/// `validation_response_body`) with a deterministic failure state. The shared
+/// counters and response cache are only mutated *after* this boundary returns,
+/// so a panic cannot leave them inconsistent.
 async fn catch_validation_panic<F>(future: F) -> std::result::Result<(), String>
 where
     F: Future<Output = ()>,
@@ -1007,6 +1058,21 @@ fn describe_panic_payload(payload: Box<dyn std::any::Any + Send>) -> String {
     } else {
         "non-string panic payload".to_string()
     }
+}
+
+/// Bound a panic message before it reaches the logs. Panic payloads are
+/// unbounded in length and may be influenced by scanned content, so cap them at
+/// a fixed length on a UTF-8 boundary.
+fn truncate_for_log(message: &str) -> String {
+    const MAX_LEN: usize = 256;
+    if message.len() <= MAX_LEN {
+        return message.to_string();
+    }
+    let mut end = MAX_LEN;
+    while !message.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}… (truncated)", &message[..end])
 }
 
 // Helper to compute the cache key for an OwnedBlobMatch.
@@ -1723,28 +1789,28 @@ mod tests {
         let success_count = AtomicUsize::new(0);
         let fail_count = AtomicUsize::new(0);
 
-        let outcome = Ok(catch_validation_panic(async {
+        let outcome = ValidationOutcome::from_timeout_result(Ok(catch_validation_panic(async {
             panic!("validator blew up");
         })
-        .await);
+        .await));
 
         apply_validation_outcome(&mut om, &cache_key, outcome, &success_count, &fail_count, &cache);
 
         assert!(!om.validation_success);
         assert_eq!(om.validation_response_status, StatusCode::INTERNAL_SERVER_ERROR);
-        assert!(
-            validation_body::clone_as_string(&om.validation_response_body)
-                .contains("Validation panicked for rule test.panic: validator blew up")
-        );
+        let body = validation_body::clone_as_string(&om.validation_response_body);
+        assert!(body.contains("Validation panicked for rule test.panic"));
+        // The raw panic payload must never leak into the user-visible body.
+        assert!(!body.contains("validator blew up"));
         assert_eq!(success_count.load(Ordering::Relaxed), 0);
         assert_eq!(fail_count.load(Ordering::Relaxed), 1);
 
         let cached = cache.get(&cache_key).expect("panic result should be cached");
         assert!(!cached.is_valid);
         assert_eq!(cached.status, StatusCode::INTERNAL_SERVER_ERROR);
-        assert!(
-            validation_body::clone_as_string(&cached.body)
-                .contains("Validation panicked for rule test.panic: validator blew up")
-        );
+        let cached_body = validation_body::clone_as_string(&cached.body);
+        assert!(cached_body.contains("Validation panicked for rule test.panic"));
+        // The cached body must not retain the raw panic payload either.
+        assert!(!cached_body.contains("validator blew up"));
     }
 }
