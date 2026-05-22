@@ -16,7 +16,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use liquid::Parser;
 use reqwest::StatusCode;
 use rustc_hash::{FxHashMap, FxHashSet};
-use tokio::{sync::Notify, time::timeout};
+use tokio::sync::Notify;
 use tracing::{debug, trace, warn};
 
 use crate::{
@@ -901,25 +901,22 @@ async fn validate_single(
     }
     // If we reach here, we're the first task to validate this key
     // Perform validation
-    let outcome = ValidationOutcome::from_timeout_result(
-        timeout(
-            validation_timeout,
-            catch_validation_panic(
-                validate_single_match(
-                    om,
-                    parser,
-                    clients,
-                    dep_vars,
-                    missing_deps,
-                    cache2,
-                    validation_timeout,
-                    validation_retries,
-                    rate_limiter,
-                    provider_endpoints.as_ref(),
-                    max_body_len,
-                )
-                .boxed(),
-            ),
+    let outcome = ValidationOutcome::from_panic_result(
+        catch_validation_panic(
+            validate_single_match(
+                om,
+                parser,
+                clients,
+                dep_vars,
+                missing_deps,
+                cache2,
+                validation_timeout,
+                validation_retries,
+                rate_limiter,
+                provider_endpoints.as_ref(),
+                max_body_len,
+            )
+            .boxed(),
         )
         .await,
     );
@@ -935,8 +932,9 @@ async fn validate_single(
 
 /// Result of attempting to validate a single match.
 ///
-/// Flattens the `timeout(catch_validation_panic(..))` nesting into one
-/// self-describing enum so call sites and signatures stay readable.
+/// Flattens panic handling into a self-describing enum so call sites and
+/// signatures stay readable. Validation timeouts are handled inside
+/// `validate_single_match`, where the module-local de-dupe state can be cleaned.
 enum ValidationOutcome {
     /// Validation ran to completion; the match's own fields describe whether it
     /// succeeded or failed.
@@ -944,18 +942,13 @@ enum ValidationOutcome {
     /// Validation panicked. The payload is captured for logging only and must
     /// never be surfaced to the user or cache (it may embed secret material).
     Panicked(String),
-    /// Validation exceeded the configured timeout.
-    TimedOut,
 }
 
 impl ValidationOutcome {
-    fn from_timeout_result(
-        result: std::result::Result<std::result::Result<(), String>, tokio::time::error::Elapsed>,
-    ) -> Self {
+    fn from_panic_result(result: std::result::Result<(), String>) -> Self {
         match result {
-            Ok(Ok(())) => ValidationOutcome::Completed,
-            Ok(Err(panic_message)) => ValidationOutcome::Panicked(panic_message),
-            Err(_) => ValidationOutcome::TimedOut,
+            Ok(()) => ValidationOutcome::Completed,
+            Err(panic_message) => ValidationOutcome::Panicked(panic_message),
         }
     }
 }
@@ -1016,12 +1009,6 @@ fn apply_validation_outcome(
                     timestamp: Instant::now(),
                 },
             );
-        }
-        ValidationOutcome::TimedOut => {
-            om.validation_success = false;
-            om.validation_response_body = validation_body::from_string("Validation timed out");
-            om.validation_response_status = StatusCode::REQUEST_TIMEOUT;
-            fail_count.fetch_add(1, Ordering::Relaxed);
         }
     }
 }
@@ -1793,10 +1780,12 @@ mod tests {
         let success_count = AtomicUsize::new(0);
         let fail_count = AtomicUsize::new(0);
 
-        let outcome = ValidationOutcome::from_timeout_result(Ok(catch_validation_panic(async {
-            panic!("validator blew up");
-        })
-        .await));
+        let outcome = ValidationOutcome::from_panic_result(
+            catch_validation_panic(async {
+                panic!("validator blew up");
+            })
+            .await,
+        );
 
         apply_validation_outcome(&mut om, &cache_key, outcome, &success_count, &fail_count, &cache);
 

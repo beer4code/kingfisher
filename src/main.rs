@@ -131,8 +131,10 @@ enum AsyncMainOutcome {
 /// silent — this is a quality-of-life nudge, not a correctness requirement.
 #[cfg(unix)]
 fn raise_nproc_soft_limit() {
-    // SAFETY: getrlimit/setrlimit are async-signal-safe and take a properly
-    // sized `rlimit` we own.
+    // SAFETY: `getrlimit`/`setrlimit` are FFI calls. We pass pointers to
+    // properly initialized `libc::rlimit` values with the correct layout, only
+    // read `rl` after `getrlimit` reports success, and treat `setrlimit`
+    // failure as best-effort by ignoring its return value.
     unsafe {
         let mut rl = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
         if libc::getrlimit(libc::RLIMIT_NPROC, &mut rl) != 0 {

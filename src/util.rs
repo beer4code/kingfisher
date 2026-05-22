@@ -28,8 +28,7 @@ const MAX_TOKIO_BLOCKING_THREADS: usize = 256;
 pub fn tokio_blocking_threads_limit(num_jobs: usize) -> usize {
     num_jobs
         .saturating_mul(TOKIO_BLOCKING_THREADS_PER_JOB)
-        .max(MIN_TOKIO_BLOCKING_THREADS)
-        .min(MAX_TOKIO_BLOCKING_THREADS)
+        .clamp(MIN_TOKIO_BLOCKING_THREADS, MAX_TOKIO_BLOCKING_THREADS)
 }
 
 /// Interns a string once and returns a `'static` reference to it.

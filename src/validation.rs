@@ -2,6 +2,7 @@ use std::{
     collections::BTreeMap,
     fs,
     hash::{Hash, Hasher},
+    panic::AssertUnwindSafe,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -17,7 +18,7 @@ use liquid_core::{Value, ValueView};
 use reqwest::{Client, Url, header, header::HeaderValue, multipart};
 use rustc_hash::{FxHashMap, FxHashSet};
 use tokio::{sync::Notify, time};
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 
 use crate::{
     cli::global::TlsMode,
@@ -303,6 +304,24 @@ fn validation_dedup_key(m: &OwnedBlobMatch) -> u64 {
 static VALIDATION_CACHE: OnceLock<DashMap<u64, CachedResponse>> = OnceLock::new();
 static IN_FLIGHT: OnceLock<DashMap<u64, Arc<Notify>>> = OnceLock::new();
 
+fn cache_validation_result(fp: u64, m: &OwnedBlobMatch) {
+    VALIDATION_CACHE.get_or_init(DashMap::new).insert(
+        fp,
+        CachedResponse {
+            body: m.validation_response_body.clone(),
+            status: m.validation_response_status,
+            is_valid: m.validation_success,
+            timestamp: Instant::now(),
+        },
+    );
+}
+
+fn clear_in_flight_validation(fp: u64) {
+    if let Some((_, notify)) = IN_FLIGHT.get_or_init(DashMap::new).remove(&fp) {
+        notify.notify_waiters();
+    }
+}
+
 /// Call this once near program start (e.g. in `main()`)
 pub fn init_validation_caches() {
     VALIDATION_CACHE.set(DashMap::new()).ok();
@@ -457,45 +476,56 @@ pub async fn validate_single_match(
     max_body_len: usize,
 ) {
     let fp = validation_dedup_key(m);
+    // Keep the unwind boundary inside this module so the process-wide
+    // validation de-dupe state is cleared before the caller observes a panic.
+    // The panic branch below overwrites the match with a deterministic failure.
     let timeout_result = time::timeout(
         validation_timeout,
-        timed_validate_single_match(
-            m,
-            parser,
-            clients,
-            dependent_variables,
-            missing_dependencies,
-            cache,
-            validation_timeout,
-            validation_retries,
-            rate_limiter,
-            provider_endpoints,
-            max_body_len,
+        AssertUnwindSafe(
+            timed_validate_single_match(
+                m,
+                parser,
+                clients,
+                dependent_variables,
+                missing_dependencies,
+                cache,
+                validation_timeout,
+                validation_retries,
+                rate_limiter,
+                provider_endpoints,
+                max_body_len,
+            )
+            .boxed(),
         )
-        .boxed(),
+        .catch_unwind(),
     )
     .await;
 
-    if timeout_result.is_err() {
-        m.validation_success = false;
-        m.validation_response_body = validation_body::from_string(format!(
-            "Validation timed out after {} seconds",
-            validation_timeout.as_secs()
-        ));
-        m.validation_response_status = StatusCode::REQUEST_TIMEOUT;
-
-        VALIDATION_CACHE.get_or_init(DashMap::new).insert(
-            fp,
-            CachedResponse {
-                body: m.validation_response_body.clone(),
-                status: m.validation_response_status,
-                is_valid: false,
-                timestamp: Instant::now(),
-            },
-        );
-
-        if let Some((_, notify)) = IN_FLIGHT.get_or_init(DashMap::new).remove(&fp) {
-            notify.notify_waiters();
+    match timeout_result {
+        Ok(Ok(())) => {}
+        Ok(Err(_panic_payload)) => {
+            warn!(
+                rule_id = %m.rule.syntax().id,
+                "validator panicked; marking match as failed",
+            );
+            m.validation_success = false;
+            m.validation_response_body = validation_body::from_string(format!(
+                "Validation panicked for rule {}",
+                m.rule.syntax().id
+            ));
+            m.validation_response_status = StatusCode::INTERNAL_SERVER_ERROR;
+            cache_validation_result(fp, m);
+            clear_in_flight_validation(fp);
+        }
+        Err(_) => {
+            m.validation_success = false;
+            m.validation_response_body = validation_body::from_string(format!(
+                "Validation timed out after {} seconds",
+                validation_timeout.as_secs()
+            ));
+            m.validation_response_status = StatusCode::REQUEST_TIMEOUT;
+            cache_validation_result(fp, m);
+            clear_in_flight_validation(fp);
         }
     }
 }
@@ -544,22 +574,12 @@ async fn timed_validate_single_match<'a>(
         }
         return;
     }
-    let notify = Arc::new(Notify::new());
-    IN_FLIGHT.get().unwrap().insert(fp, notify.clone());
+    IN_FLIGHT.get().unwrap().insert(fp, Arc::new(Notify::new()));
 
     // helper to persist result + notify waiters
     let commit_and_return = |m: &OwnedBlobMatch| {
-        VALIDATION_CACHE.get().unwrap().insert(
-            fp,
-            CachedResponse {
-                body: m.validation_response_body.clone(),
-                status: m.validation_response_status,
-                is_valid: m.validation_success,
-                timestamp: Instant::now(),
-            },
-        );
-        IN_FLIGHT.get().unwrap().remove(&fp);
-        notify.notify_waiters();
+        cache_validation_result(fp, m);
+        clear_in_flight_validation(fp);
     };
     // ──────────────────────────────────────────────────────────
 
