@@ -16,6 +16,22 @@ use rand::RngExt;
 static APP_SALT: LazyLock<String> = LazyLock::new(|| generate_salt());
 static REDACTION_ENABLED: AtomicBool = AtomicBool::new(false);
 
+const MIN_TOKIO_BLOCKING_THREADS: usize = 32;
+const TOKIO_BLOCKING_THREADS_PER_JOB: usize = 8;
+const MAX_TOKIO_BLOCKING_THREADS: usize = 256;
+
+/// Per-runtime cap for Tokio's blocking thread pool.
+///
+/// Tokio defaults to 512 blocking threads per runtime. Kingfisher can run the
+/// main and artifact-fetcher runtimes at the same time, so keeping each runtime
+/// below that default avoids runaway thread growth during validation-heavy scans.
+pub fn tokio_blocking_threads_limit(num_jobs: usize) -> usize {
+    num_jobs
+        .saturating_mul(TOKIO_BLOCKING_THREADS_PER_JOB)
+        .max(MIN_TOKIO_BLOCKING_THREADS)
+        .min(MAX_TOKIO_BLOCKING_THREADS)
+}
+
 /// Interns a string once and returns a `'static` reference to it.
 pub fn intern(s: &str) -> &'static str {
     static INTERN: LazyLock<DashSet<&'static str>> = LazyLock::new(|| DashSet::with_capacity(512));
@@ -155,6 +171,16 @@ mod tests {
     };
 
     use super::{is_test_like_path, *};
+
+    #[test]
+    fn tokio_blocking_threads_limit_scales_and_caps() {
+        assert_eq!(tokio_blocking_threads_limit(0), 32);
+        assert_eq!(tokio_blocking_threads_limit(1), 32);
+        assert_eq!(tokio_blocking_threads_limit(4), 32);
+        assert_eq!(tokio_blocking_threads_limit(8), 64);
+        assert_eq!(tokio_blocking_threads_limit(32), 256);
+        assert_eq!(tokio_blocking_threads_limit(usize::MAX), 256);
+    }
 
     /// Paths that **should** be classified as test-like.
     #[test]

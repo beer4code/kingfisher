@@ -80,6 +80,7 @@ use kingfisher::{
     rules_database::RulesDatabase,
     scanner::{load_and_record_rules, run_scan},
     update::{check_for_update_async, rewrite_argv_for_reexec},
+    util::tokio_blocking_threads_limit,
     validation::set_user_agent_suffix,
 };
 use serde_json::json;
@@ -102,6 +103,7 @@ use crate::cli::commands::{
 };
 
 fn main() -> anyhow::Result<()> {
+    raise_nproc_soft_limit();
     color_backtrace::install();
 
     // Run the real entry point on a thread with an explicit, larger stack so that
@@ -121,6 +123,30 @@ enum AsyncMainOutcome {
     Done,
     Reexec,
 }
+
+/// Best-effort raise of the soft `RLIMIT_NPROC` (per-user thread/process cap)
+/// to the current hard limit. Many users hit `pthread_create` failures
+/// (`EAGAIN` / `WouldBlock`) under heavy validation because the default soft
+/// limit on macOS is well below the hard limit. Failures here are intentionally
+/// silent — this is a quality-of-life nudge, not a correctness requirement.
+#[cfg(unix)]
+fn raise_nproc_soft_limit() {
+    // SAFETY: getrlimit/setrlimit are async-signal-safe and take a properly
+    // sized `rlimit` we own.
+    unsafe {
+        let mut rl = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        if libc::getrlimit(libc::RLIMIT_NPROC, &mut rl) != 0 {
+            return;
+        }
+        if rl.rlim_cur < rl.rlim_max {
+            let new = libc::rlimit { rlim_cur: rl.rlim_max, rlim_max: rl.rlim_max };
+            let _ = libc::setrlimit(libc::RLIMIT_NPROC, &new);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn raise_nproc_soft_limit() {}
 
 fn run() -> anyhow::Result<()> {
     // Rustls 0.23 requires an explicit crypto provider selection when multiple
@@ -160,8 +186,13 @@ fn run() -> anyhow::Result<()> {
     // Worker threads need larger stacks because async state machines (validation
     // pipeline) can produce large poll stack frames. 8 MiB is sufficient now that
     // the validators are split into separate async fns.
+    // Bound the blocking-thread pool. Tokio's default is 512 per runtime; the
+    // helper scales with --jobs but caps each runtime below that default so the
+    // main and artifact-fetcher runtimes cannot both grow huge blocking pools.
+    let max_blocking = tokio_blocking_threads_limit(num_jobs);
     let runtime = Builder::new_multi_thread()
         .worker_threads(num_jobs)
+        .max_blocking_threads(max_blocking)
         .thread_stack_size(8 * 1024 * 1024) // 8 MiB per worker
         .enable_all()
         .build()

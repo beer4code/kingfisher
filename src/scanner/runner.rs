@@ -42,7 +42,7 @@ use crate::{
         run_secret_validation, save_docker_images,
         summary::{compute_scan_totals, print_scan_summary},
     },
-    util::set_redaction_enabled,
+    util::{set_redaction_enabled, tokio_blocking_threads_limit},
     validation::CachedResponse,
     validation_rate_limit::ValidationRateLimiter,
 };
@@ -403,8 +403,10 @@ fn start_artifact_fetching(
     std::thread::Builder::new()
         .name("artifact-fetcher".to_string())
         .spawn(move || -> Result<()> {
+            let workers = args.num_jobs.max(1);
             let rt = tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(args.num_jobs.max(1))
+                .worker_threads(workers)
+                .max_blocking_threads(tokio_blocking_threads_limit(workers))
                 .enable_all()
                 .build()
                 .context("Failed to build artifact-fetcher runtime")?;

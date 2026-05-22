@@ -2,6 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.101.0]
+- Fixed `failed to spawn thread: Os { code: 11, kind: WouldBlock }` panics during validation-heavy scans. Kingfisher built two Tokio runtimes (main + artifact-fetcher) that each defaulted to 512 blocking threads, which combined with Rayon pools and per-call spawns could exceed the OS per-user thread limit (`RLIMIT_NPROC`, default 8000 on macOS). Both runtimes now cap their blocking pools at `min(max(num_jobs * 8, 32), 256)`, and on Unix the soft `RLIMIT_NPROC` is raised to the hard limit before Kingfisher starts its worker threads so users don't need to tune `ulimit -u` manually.
+
 ## [v1.100.0]
 - Archive scanning now reaches inside Android/iOS app packages: added `apk`, `aab`, and `ipa` to the recognized ZIP-based archive formats so secrets embedded in APK/AAB/IPA contents (e.g. `classes*.dex`, `res/values/strings.xml`) are extracted and matched.
 - Git repository scans now extract archive blobs encountered in the object database, not just on the filesystem. Previously a `.zip`/`.jar`/`.apk`/`.tar.gz` committed to a repo was scanned as raw compressed bytes, so secrets inside it were invisible. The git enumerator fans each archive entry out as a synthetic `<archive>!<entry>` blob with the original commit metadata. Honors `--no-extract-archives` for opt-out.

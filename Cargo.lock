@@ -4960,7 +4960,7 @@ dependencies = [
 
 [[package]]
 name = "kingfisher"
-version = "1.100.0"
+version = "1.101.0"
 dependencies = [
  "anyhow",
  "asar",
@@ -5023,6 +5023,7 @@ dependencies = [
  "kingfisher-core",
  "kingfisher-rules",
  "kingfisher-scanner",
+ "libc",
  "liquid",
  "liquid-core",
  "lzma-rs",
