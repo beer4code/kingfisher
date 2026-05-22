@@ -17,7 +17,7 @@ use liquid::Parser;
 use reqwest::StatusCode;
 use rustc_hash::{FxHashMap, FxHashSet};
 use tokio::{sync::Notify, time::timeout};
-use tracing::{trace, warn};
+use tracing::{debug, trace, warn};
 
 use crate::{
     access_map::AccessMapRequest,
@@ -989,19 +989,23 @@ fn apply_validation_outcome(
         ValidationOutcome::Panicked(panic_message) => {
             // The panic payload can embed secret material (e.g. a token captured
             // in a debug string), so it must never reach the cached or
-            // user-visible body. Emit the detail through structured logging
-            // (truncated), and keep the visible body to the stable rule id.
+            // user-visible body. Keep WARN free of the payload too; truncated
+            // panic detail is only emitted at DEBUG for troubleshooting.
             warn!(
                 rule_id = %om.rule.id(),
-                panic = %truncate_for_log(&panic_message),
                 "validator panicked; marking match as failed",
+            );
+            debug!(
+                rule_id = %om.rule.id(),
+                panic = %truncate_for_log(&panic_message),
+                "validator panic detail",
             );
             om.validation_success = false;
             om.validation_response_body = validation_body::from_string(format!(
                 "Validation panicked for rule {}",
                 om.rule.id()
             ));
-            om.validation_response_status = http::StatusCode::INTERNAL_SERVER_ERROR;
+            om.validation_response_status = StatusCode::INTERNAL_SERVER_ERROR;
             fail_count.fetch_add(1, Ordering::Relaxed);
             cache.insert(
                 cache_key.to_owned(),
@@ -1016,7 +1020,7 @@ fn apply_validation_outcome(
         ValidationOutcome::TimedOut => {
             om.validation_success = false;
             om.validation_response_body = validation_body::from_string("Validation timed out");
-            om.validation_response_status = http::StatusCode::REQUEST_TIMEOUT;
+            om.validation_response_status = StatusCode::REQUEST_TIMEOUT;
             fail_count.fetch_add(1, Ordering::Relaxed);
         }
     }
