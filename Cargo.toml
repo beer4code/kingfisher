@@ -250,6 +250,9 @@ predicates = "3.1.3"
 assert_cmd = "2.1.1"
 proptest = "1.9.0"
 jsonwebtoken = { version = "10.4.0", default-features = false, features = ["rust_crypto"] }
+# Test-only: generate an ephemeral RSA keypair for the RS256 JWT regression test.
+# `getrandom` enables `rsa::rand_core::OsRng`; `pem` is on by default for PEM export.
+rsa = { version = "0.9.10", features = ["getrandom"] }
 
 [profile.release]
 debug = false

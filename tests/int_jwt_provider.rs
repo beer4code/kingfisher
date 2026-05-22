@@ -1,34 +1,52 @@
-use jsonwebtoken::DecodingKey;
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, encode};
 use kingfisher_scanner::validation::jwt::{ValidateOptions, validate_jwt_with};
+use rsa::RsaPrivateKey;
+use rsa::pkcs1::{EncodeRsaPrivateKey, LineEnding};
+use rsa::pkcs8::EncodePublicKey;
+use rsa::rand_core::OsRng;
 
-const RS256_TOKEN: &str = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJtb2NrLXN1YmplY3QiLCJuYmYiOjAsImV4cCI6NDEwMjQ0NDgwMH0.T87uqt_EI9ISXFmfn2hVTJa-sDTF2xWjNl0Fo6ZClM3_bvdyEB5BWzkIjDmQGbXjP1iVGHv59esuoHjeRYR_S7cBBIM-J2ZWuR_FfVSwjI-jxDlQGw8BFBN6qqpX2dBQfe0NmJ4GzBmQmyPX9GVNlw6zZvW0SGnaX5GcD7HOCqoZQhkiI4W1zTCQ_J4OjJnMwdNg6XkquwBj_yV-VKx_9NYXXTCjl6JtFBF9ZP2X3I58sLSOTzbkTSwSHfLpWLxWfzEYItwHALsK_fBAYMlSZwRvHpRBc48Tqg_2hjOi8j2qQiMbPDTNJJDnt1jEz0JeYahH8N7aJzIPEmd2HXFdKw";
-
-const RSA_PUBLIC_KEY_PEM: &str = r#"-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2OcytZklidtKr63saWAt
-CnwQmMS8W7OEpbnrP746SSR/gkkrNYBkW3POX3T9dcaf4Ozn50QuFGUqBdCAvHUS
-9ZFjubPXsqaxOY9R1eiQt8V+0mf1yI7Q9KCygbqZvilyJ6//kvWTKWA5N9A48J69
-wkkxuDXnhmSK0zwuNOetphuQNtVuCvePrvrI9OkcYp8EC2qtJi6oxy+0dI9lCN5+
-qQyxWDAJVtPw1I/xSZFzMdFrpZWA65VcqKVqjCEB4bHAc15S7UCuLEgBFlqQEndk
-6qTKCy0cVm7LqMOLuNJzbhzNU5caXbEYu6uzzU4vLgIdWpIr09dpNxFl+oA0zbMa
-vQIDAQAB
------END PUBLIC KEY-----"#;
-
+/// Regression test for the `jsonwebtoken` CryptoProvider panic (see issue #385).
+///
+/// It exercises the asymmetric (RS256) verification path through `validate_jwt_with`
+/// via the fallback decoding key. A throwaway RSA keypair is generated at runtime and
+/// the token is signed from readable claims, so no opaque token blobs or key material
+/// are committed to the repository.
 #[tokio::test]
 async fn validate_jwt_with_fallback_key_handles_rs256_without_panicking() {
+    // Generate an ephemeral RSA keypair for this test run only.
+    let mut rng = OsRng;
+    let private_key = RsaPrivateKey::new(&mut rng, 2048).expect("generate RSA key");
+    let private_pem = private_key.to_pkcs1_pem(LineEnding::LF).expect("encode private key");
+    let public_pem =
+        private_key.to_public_key().to_public_key_pem(LineEnding::LF).expect("encode public key");
+
+    // Omitting `iss` routes validation through the fallback-key path (the one that panicked).
+    let claims = serde_json::json!({
+        "sub": "mock-subject",
+        "nbf": 0,
+        "exp": 4_102_444_800_i64, // year 2100, so the token never expires during CI
+    });
+    let token = encode(
+        &Header::new(Algorithm::RS256),
+        &claims,
+        &EncodingKey::from_rsa_pem(private_pem.as_bytes()).expect("valid encoding key"),
+    )
+    .expect("sign RS256 token");
+
     let opts = ValidateOptions {
         allow_alg_none: false,
         fallback_decoding_key: Some(
-            DecodingKey::from_rsa_pem(RSA_PUBLIC_KEY_PEM.as_bytes()).expect("valid RSA key"),
+            DecodingKey::from_rsa_pem(public_pem.as_bytes()).expect("valid RSA key"),
         ),
     };
 
-    let (ok, message) = validate_jwt_with(RS256_TOKEN, &opts, false, false)
+    let (ok, message) = validate_jwt_with(&token, &opts, false, false)
         .await
         .expect("RS256 validation should not panic or error");
 
     assert!(ok, "expected JWT signature verification to succeed: {message}");
     assert!(
         message.contains("JWT valid via fallback key"),
-        "unexpected validation message: {message}"
+        "expected the fallback-key verification path: {message}"
     );
 }
