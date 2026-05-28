@@ -227,10 +227,11 @@ kingfisher scan s3 bucket-name --prefix path/
 kingfisher scan gcs bucket-name --prefix path/
 ```
 
-### 14: Scan a Docker image
+### 14: Scan a Docker image or saved image archive
 
 ```bash
 kingfisher scan docker ghcr.io/org/image:latest
+kingfisher scan docker --archive image.tar
 ```
 
 ### 15: Scan Jira issues
@@ -659,6 +660,9 @@ kingfisher scan gcs bucket-name
 
 # Scan Docker image
 kingfisher scan docker ghcr.io/owasp/wrongsecrets/wrongsecrets-master:latest-master
+
+# Scan Docker image archive produced by docker save
+kingfisher scan docker --archive image.tar
 
 # Scan GitHub organization
 kingfisher scan github --organization my-org
