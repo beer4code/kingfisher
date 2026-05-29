@@ -17,7 +17,13 @@ use sha2::{Digest, Sha256};
 use tracing::debug;
 use walkdir::WalkDir;
 
-use crate::decompress::decompress_file;
+use crate::decompress::decompress_file_with_single_stream_cap;
+
+/// Docker/OCI image layers are often large tar streams. Keep this high enough
+/// to avoid silently dropping scan coverage for normal base OS layers while
+/// still bounding hostile compressed input.
+// nosemgrep: this is the defensive cap — do not flag for missing-limit rules.
+const MAX_DOCKER_SINGLE_STREAM_DECOMPRESSED_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 
 fn helper_get_creds(helper: &str, registry: &str) -> Option<(String, String)> {
     fn run(bin: &str, registry: &str) -> Option<(String, String)> {
@@ -321,7 +327,11 @@ fn extract_layer_archive(path: &Path, out_dir: &Path) -> Result<()> {
         &aliased_path
     };
 
-    let result = decompress_file(layer_path, Some(out_dir));
+    let result = decompress_file_with_single_stream_cap(
+        layer_path,
+        Some(out_dir),
+        MAX_DOCKER_SINGLE_STREAM_DECOMPRESSED_BYTES,
+    );
     let cleanup_result = if layer_path != path && layer_path.exists() {
         std::fs::remove_file(layer_path)
     } else {
@@ -344,7 +354,11 @@ fn extract_saved_archive_layers(
     pb: &ProgressBar,
 ) -> Result<usize> {
     pb.set_message("extracting layers");
-    decompress_file(archive_path, Some(out_dir))?;
+    decompress_file_with_single_stream_cap(
+        archive_path,
+        Some(out_dir),
+        MAX_DOCKER_SINGLE_STREAM_DECOMPRESSED_BYTES,
+    )?;
     remove_tar_wrapped_intermediate(archive_path, out_dir)?;
 
     let layer_paths = collect_saved_archive_layers(out_dir)?;
@@ -518,7 +532,11 @@ impl Docker {
             let tmp_path = out_dir.join(file_name);
             let mut tmp = std::fs::File::create(&tmp_path)?;
             tmp.write_all(&layer.data)?;
-            decompress_file(&tmp_path, Some(out_dir))?;
+            decompress_file_with_single_stream_cap(
+                &tmp_path,
+                Some(out_dir),
+                MAX_DOCKER_SINGLE_STREAM_DECOMPRESSED_BYTES,
+            )?;
             std::fs::remove_file(&tmp_path)?;
             pb.inc(1);
         }

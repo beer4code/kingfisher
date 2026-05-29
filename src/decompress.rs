@@ -516,10 +516,6 @@ impl<W: Write> Write for CappedWriter<W> {
     }
 }
 
-fn stream_to_file<R: Read>(decoder: R, out_path: &Path) -> Result<CompressedContent> {
-    stream_to_file_capped(decoder, out_path, MAX_SINGLE_STREAM_DECOMPRESSED_BYTES)
-}
-
 fn stream_to_file_capped<R: Read>(
     mut decoder: R,
     out_path: &Path,
@@ -535,10 +531,6 @@ fn stream_to_file_capped<R: Read>(
         );
     }
     Ok(CompressedContent::RawFile(out_path.to_owned()))
-}
-
-fn stream_xz_to_file(path: &Path, out_path: &Path) -> Result<CompressedContent> {
-    stream_xz_to_file_capped(path, out_path, MAX_SINGLE_STREAM_DECOMPRESSED_BYTES)
 }
 
 fn stream_xz_to_file_capped(path: &Path, out_path: &Path, cap: u64) -> Result<CompressedContent> {
@@ -559,7 +551,11 @@ fn stream_xz_to_file_capped(path: &Path, out_path: &Path, cap: u64) -> Result<Co
 /* ───────────────────────────────────────────────────────────────
 one *step* of decompression
 ───────────────────────────────────────────────────────────── */
-fn decompress_once(path: &Path, base_dir: Option<&Path>) -> Result<CompressedContent> {
+fn decompress_once_with_single_stream_cap(
+    path: &Path,
+    base_dir: Option<&Path>,
+    single_stream_cap: u64,
+) -> Result<CompressedContent> {
     let extension = path.extension().and_then(|ext| ext.to_str()).map(|s| s.to_ascii_lowercase());
 
     let mut file = safe_open_for_read(path)?;
@@ -600,21 +596,21 @@ fn decompress_once(path: &Path, base_dir: Option<&Path>) -> Result<CompressedCon
             "gz" | "gzip" | "tgz" => {
                 let out_path = make_output_path(path, base_dir, "decomp.tar");
                 let decoder = GzDecoder::new(BufReader::new(safe_open_for_read(path)?));
-                return stream_to_file(decoder, &out_path);
+                return stream_to_file_capped(decoder, &out_path, single_stream_cap);
             }
             "bz2" | "bzip2" => {
                 let out_path = make_output_path(path, base_dir, "decomp.tar");
                 let decoder = DecoderReader::new(BufReader::new(safe_open_for_read(path)?));
-                return stream_to_file(decoder, &out_path);
+                return stream_to_file_capped(decoder, &out_path, single_stream_cap);
             }
             "xz" => {
                 let out_path = make_output_path(path, base_dir, "decomp.tar");
-                return stream_xz_to_file(path, &out_path);
+                return stream_xz_to_file_capped(path, &out_path, single_stream_cap);
             }
             "zlib" => {
                 let out_path = make_output_path(path, base_dir, "decomp.tar");
                 let decoder = ZlibDecoder::new(BufReader::new(safe_open_for_read(path)?));
-                return stream_to_file(decoder, &out_path);
+                return stream_to_file_capped(decoder, &out_path, single_stream_cap);
             }
             _ => {}
         }
@@ -630,12 +626,21 @@ fn decompress_once(path: &Path, base_dir: Option<&Path>) -> Result<CompressedCon
 public entry point – keeps peeling layers
 ───────────────────────────────────────────────────────────── */
 pub fn decompress_file(path: &Path, base_dir: Option<&Path>) -> Result<CompressedContent> {
+    decompress_file_with_single_stream_cap(path, base_dir, MAX_SINGLE_STREAM_DECOMPRESSED_BYTES)
+}
+
+pub fn decompress_file_with_single_stream_cap(
+    path: &Path,
+    base_dir: Option<&Path>,
+    single_stream_cap: u64,
+) -> Result<CompressedContent> {
     let mut current_path: &Path = path;
     let mut owned_buf: Option<PathBuf>;
 
     loop {
         let should_extract_tar = is_tar_wrapped_compression(current_path);
-        let content = decompress_once(current_path, base_dir)?;
+        let content =
+            decompress_once_with_single_stream_cap(current_path, base_dir, single_stream_cap)?;
 
         // If the step produced a single on-disk file that is itself a .tar,
         // recurse on that file.
@@ -704,7 +709,7 @@ pub fn decompress_file_to_temp(path: &Path) -> Result<(CompressedContent, TempDi
 
 #[cfg(test)]
 mod tests {
-    use std::{fs::File, io::Write};
+    use std::{fs::File, io::Write, path::Path};
 
     use flate2::{Compression, write::GzEncoder};
     use tar::Builder;
@@ -712,9 +717,16 @@ mod tests {
     use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
     use super::{
-        CompressedContent, decompress_file_to_temp, decompress_once,
-        materialize_in_memory_archive_entries,
+        CompressedContent, decompress_file_to_temp, materialize_in_memory_archive_entries,
     };
+
+    fn decompress_once(path: &Path, base_dir: Option<&Path>) -> anyhow::Result<CompressedContent> {
+        super::decompress_once_with_single_stream_cap(
+            path,
+            base_dir,
+            super::MAX_SINGLE_STREAM_DECOMPRESSED_BYTES,
+        )
+    }
 
     /// 1) Fully unpack:
     ///    - 1st decompress `.gz` -- get a `.tar` file
@@ -962,7 +974,7 @@ mod tests {
         use tar::Builder;
         use tempfile::tempdir;
 
-        use super::{CompressedContent, decompress_once};
+        use super::CompressedContent;
 
         let tmp = tempdir()?;
 
