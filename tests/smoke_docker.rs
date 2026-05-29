@@ -83,7 +83,10 @@ fn smoke_scan_docker_archive() -> anyhow::Result<()> {
         .assert()
         .code(200)
         .stdout(
-            predicate::str::contains(github_pat).and(predicate::str::contains("app/secret.txt")),
+            predicate::str::contains(github_pat).and(
+                predicate::str::contains("app/secret.txt")
+                    .or(predicate::str::contains("app\\\\secret.txt")),
+            ),
         );
 
     Ok(())
