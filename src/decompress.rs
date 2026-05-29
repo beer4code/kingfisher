@@ -1,6 +1,6 @@
 use std::{
     fs,
-    io::{BufReader, Read},
+    io::{BufReader, Read, Write},
     path::{Component, Path, PathBuf},
 };
 
@@ -465,17 +465,94 @@ fn safe_create_for_write(path: &Path) -> Result<fs::File> {
     Ok(fs::File::create(path)?)
 }
 
-fn stream_to_file<R: Read>(mut decoder: R, out_path: &Path) -> Result<CompressedContent> {
-    let mut out_file = safe_create_for_write(out_path)?;
-    std::io::copy(&mut decoder, &mut out_file)?;
+/// Hard cap on the number of bytes a single-stream decompressor
+/// (gzip/bzip2/xz/zlib) will write to disk for one input. Mirrors the per-entry
+/// decompressed cap enforced by the ZIP extractors so a small "compression
+/// bomb" cannot expand without limit and exhaust the scanner's temporary
+/// filesystem. Output past the cap is dropped and a truncation warning logged.
+// nosemgrep: this is the defensive cap — do not flag for missing-limit rules.
+pub const MAX_SINGLE_STREAM_DECOMPRESSED_BYTES: u64 = 512 * 1024 * 1024;
+
+/// `Write` adaptor that drops everything past `remaining` bytes.
+///
+/// Bounds single-stream decompressors so a high-ratio compression bomb can't
+/// fill the disk. Writes past the cap are reported as fully consumed so the
+/// underlying decoder runs to completion instead of erroring or looping; the
+/// truncation is surfaced via [`CappedWriter::truncated`], matching the
+/// truncate-and-warn behavior of the ZIP entry extractor.
+struct CappedWriter<W: Write> {
+    inner: W,
+    remaining: u64,
+    truncated: bool,
+}
+
+impl<W: Write> CappedWriter<W> {
+    fn new(inner: W, cap: u64) -> Self {
+        Self { inner, remaining: cap, truncated: false }
+    }
+
+    fn truncated(&self) -> bool {
+        self.truncated
+    }
+}
+
+impl<W: Write> Write for CappedWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let allowed = (buf.len() as u64).min(self.remaining) as usize;
+        if allowed > 0 {
+            self.inner.write_all(&buf[..allowed])?;
+            self.remaining -= allowed as u64;
+        }
+        if allowed < buf.len() {
+            self.truncated = true;
+        }
+        // Report the whole buffer as consumed even when the tail was dropped so
+        // `io::copy`/`xz_decompress` don't treat the cap as a write error.
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+fn stream_to_file<R: Read>(decoder: R, out_path: &Path) -> Result<CompressedContent> {
+    stream_to_file_capped(decoder, out_path, MAX_SINGLE_STREAM_DECOMPRESSED_BYTES)
+}
+
+fn stream_to_file_capped<R: Read>(
+    mut decoder: R,
+    out_path: &Path,
+    cap: u64,
+) -> Result<CompressedContent> {
+    let out_file = safe_create_for_write(out_path)?;
+    let mut capped = CappedWriter::new(out_file, cap);
+    std::io::copy(&mut decoder, &mut capped)?;
+    if capped.truncated() {
+        tracing::warn!(
+            "decompressed stream written to {} exceeded {cap} byte cap; truncating",
+            out_path.display()
+        );
+    }
     Ok(CompressedContent::RawFile(out_path.to_owned()))
 }
 
 fn stream_xz_to_file(path: &Path, out_path: &Path) -> Result<CompressedContent> {
+    stream_xz_to_file_capped(path, out_path, MAX_SINGLE_STREAM_DECOMPRESSED_BYTES)
+}
+
+fn stream_xz_to_file_capped(path: &Path, out_path: &Path, cap: u64) -> Result<CompressedContent> {
     let input = safe_open_for_read(path)?;
     let mut reader = BufReader::new(input);
-    let mut out_file = safe_create_for_write(out_path)?;
-    xz_decompress(&mut reader, &mut out_file)?;
+    let out_file = safe_create_for_write(out_path)?;
+    let mut capped = CappedWriter::new(out_file, cap);
+    xz_decompress(&mut reader, &mut capped)?;
+    if capped.truncated() {
+        tracing::warn!(
+            "decompressed xz stream written to {} exceeded {cap} byte cap; truncating",
+            out_path.display()
+        );
+    }
     Ok(CompressedContent::RawFile(out_path.to_owned()))
 }
 
@@ -1125,6 +1202,51 @@ mod tests {
             other => panic!("expected Raw for egg, got {:?}", other),
         }
 
+        Ok(())
+    }
+
+    #[test]
+    fn capped_writer_drops_bytes_past_cap() {
+        use std::io::Write;
+
+        use super::CappedWriter;
+
+        let mut sink = Vec::new();
+        let mut capped = CappedWriter::new(&mut sink, 40);
+        // Report full consumption even though the tail is dropped.
+        assert_eq!(capped.write(&[0u8; 100]).unwrap(), 100);
+        assert!(capped.truncated());
+        capped.flush().unwrap();
+        assert_eq!(sink.len(), 40);
+
+        let mut sink = Vec::new();
+        let mut capped = CappedWriter::new(&mut sink, 40);
+        assert_eq!(capped.write(&[0u8; 10]).unwrap(), 10);
+        assert!(!capped.truncated());
+        assert_eq!(sink.len(), 10);
+    }
+
+    #[test]
+    fn stream_to_file_capped_truncates_oversized_stream() -> anyhow::Result<()> {
+        use std::io::Cursor;
+
+        use super::{CompressedContent, stream_to_file_capped};
+
+        let dir = tempdir()?;
+        let out_path = dir.path().join("out.bin");
+
+        // A "decompressed" stream far larger than the cap: only `cap` bytes
+        // should ever reach disk, mirroring a small compression bomb.
+        let payload = vec![b'A'; 8192];
+        let content = stream_to_file_capped(Cursor::new(payload), &out_path, 128)?;
+
+        match content {
+            CompressedContent::RawFile(p) => {
+                let written = std::fs::metadata(&p)?.len();
+                assert_eq!(written, 128, "output must be capped at the byte budget");
+            }
+            other => panic!("expected RawFile, got {other:?}"),
+        }
         Ok(())
     }
 }

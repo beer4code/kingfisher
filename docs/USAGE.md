@@ -806,6 +806,13 @@ kingfisher revoke --rule github \
 > flags because some deployments front-load auth (an SSO portal for repo
 > access vs. a direct API endpoint for token validation).
 
+> **Token scoping.** `KF_GITHUB_TOKEN` is installed as a host-scoped,
+> HTTPS-only git credential helper, so it is sent only to `github.com` and
+> to the GHE host(s) you name in `--github-api-url` / `--endpoint github=…`.
+> An untrusted clone target — or a plaintext `http://` remote — never
+> receives the token. The same scoping applies to the GitLab, Gitea, Azure,
+> and Hugging Face clone tokens and their corresponding API-URL flags.
+
 ---
 
 ## GitLab
