@@ -93,13 +93,40 @@ fn handle_tar_archive_streaming(
 ) -> Result<CompressedContent> {
     let mut archive = Archive::new(file);
     let mut entries_on_disk = Vec::new();
+    let mut truncated = false;
 
-    for entry in archive.entries()? {
-        let mut entry = entry?;
+    let entries = match archive.entries() {
+        Ok(entries) => entries,
+        Err(e) => {
+            tracing::debug!("failed to open tar archive {}: {}", archive_path.display(), e);
+            return Ok(CompressedContent::RawFile(archive_path.to_owned()));
+        }
+    };
+
+    for entry in entries {
+        let mut entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                tracing::debug!("tar archive {} ended early: {}", archive_path.display(), e);
+                truncated = true;
+                break;
+            }
+        };
         if entry.header().entry_type().is_file() {
-            let path_in_tar = entry.path()?.to_string_lossy().to_string();
+            let path_in_tar = match entry.path() {
+                Ok(path) => path.to_string_lossy().to_string(),
+                Err(e) => {
+                    tracing::debug!(
+                        "failed to read tar entry path in {}: {}",
+                        archive_path.display(),
+                        e
+                    );
+                    truncated = true;
+                    break;
+                }
+            };
             if !is_safe_extract_path(Path::new(&path_in_tar)) {
-                tracing::warn!("unsafe tar path: {path_in_tar}");
+                tracing::debug!("unsafe tar path: {path_in_tar}");
                 continue;
             }
             let logical_path = format!("{}!{}", archive_path.display(), path_in_tar);
@@ -113,9 +140,23 @@ fn handle_tar_archive_streaming(
             }
             match fs::File::create(&out_path) {
                 Ok(mut out_file) => {
-                    if let Err(e) = std::io::copy(&mut entry, &mut out_file) {
-                        tracing::debug!("failed to extract {}: {}", out_path.display(), e);
-                        continue;
+                    let expected_size = entry.size();
+                    let copied = match std::io::copy(&mut entry, &mut out_file) {
+                        Ok(n) => n,
+                        Err(e) => {
+                            tracing::debug!("failed to extract {}: {}", out_path.display(), e);
+                            truncated = true;
+                            break;
+                        }
+                    };
+                    if copied != expected_size {
+                        tracing::debug!(
+                            "tar entry {} in {} was truncated after {copied} of {expected_size} bytes",
+                            path_in_tar,
+                            archive_path.display()
+                        );
+                        truncated = true;
+                        break;
                     }
                     entries_on_disk.push((logical_path, out_path));
                 }
@@ -126,6 +167,15 @@ fn handle_tar_archive_streaming(
             }
         }
     }
+
+    if truncated && entries_on_disk.is_empty() {
+        tracing::debug!(
+            "tar archive {} was truncated before any entry completed; falling back to raw scan",
+            archive_path.display()
+        );
+        return Ok(CompressedContent::RawFile(archive_path.to_owned()));
+    }
+
     Ok(CompressedContent::ArchiveFiles(entries_on_disk))
 }
 
@@ -181,7 +231,7 @@ pub fn extract_zip_archive_in_memory(
 
     for i in 0..zip.len() {
         if total_decompressed >= MAX_INMEM_ZIP_DECOMPRESSED_BYTES {
-            tracing::warn!(
+            tracing::debug!(
                 "in-memory zip {archive_label} exceeded {MAX_INMEM_ZIP_DECOMPRESSED_BYTES} byte aggregate cap at entry {i}/{}; truncating",
                 zip.len()
             );
@@ -203,7 +253,7 @@ pub fn extract_zip_archive_in_memory(
         // path never writes to disk, but downstream code may construct
         // file URLs from these strings.
         if !is_safe_extract_path(Path::new(&name_in_zip)) {
-            tracing::warn!("unsafe zip entry name in {archive_label}: {name_in_zip}");
+            tracing::debug!("unsafe zip entry name in {archive_label}: {name_in_zip}");
             continue;
         }
 
@@ -223,7 +273,7 @@ pub fn extract_zip_archive_in_memory(
             continue;
         }
         if buf.len() as u64 == entry_cap && entry_cap == MAX_ZIP_ENTRY_DECOMPRESSED_BYTES {
-            tracing::warn!(
+            tracing::debug!(
                 "zip entry {name_in_zip} in {archive_label} exceeded {MAX_ZIP_ENTRY_DECOMPRESSED_BYTES} byte cap; truncating"
             );
         }
@@ -258,7 +308,7 @@ fn handle_zip_archive_streaming(
 
     for i in 0..zip.len() {
         if total_decompressed >= MAX_INMEM_ZIP_DECOMPRESSED_BYTES {
-            tracing::warn!(
+            tracing::debug!(
                 "zip archive {} exceeded {} byte aggregate cap at entry {i}/{}; truncating",
                 archive_path.display(),
                 MAX_INMEM_ZIP_DECOMPRESSED_BYTES,
@@ -271,7 +321,7 @@ fn handle_zip_archive_streaming(
         if zipped_file.is_file() {
             let name_in_zip = zipped_file.name().to_string();
             if !is_safe_extract_path(Path::new(&name_in_zip)) {
-                tracing::warn!("unsafe zip path: {name_in_zip}");
+                tracing::debug!("unsafe zip path: {name_in_zip}");
                 continue;
             }
             let logical_path = format!("{}!{}", archive_path.display(), name_in_zip);
@@ -298,7 +348,7 @@ fn handle_zip_archive_streaming(
                     };
                     total_decompressed += copied;
                     if copied == entry_cap && entry_cap == MAX_ZIP_ENTRY_DECOMPRESSED_BYTES {
-                        tracing::warn!(
+                        tracing::debug!(
                             "zip entry {} exceeded {} byte cap; truncating",
                             out_path.display(),
                             MAX_ZIP_ENTRY_DECOMPRESSED_BYTES
@@ -306,7 +356,7 @@ fn handle_zip_archive_streaming(
                     }
                     entries_on_disk.push((logical_path, out_path));
                     if total_decompressed >= MAX_INMEM_ZIP_DECOMPRESSED_BYTES {
-                        tracing::warn!(
+                        tracing::debug!(
                             "zip archive {} reached {} byte aggregate cap; truncating remaining entries",
                             archive_path.display(),
                             MAX_INMEM_ZIP_DECOMPRESSED_BYTES
@@ -405,7 +455,7 @@ fn handle_asar_archive_in_memory(buffer: &[u8], archive_path: &Path) -> Result<C
             for (path_in_asar, file) in reader.files() {
                 let inner_path = path_in_asar.to_string_lossy().replace('\\', "/");
                 if !is_safe_extract_path(Path::new(&inner_path)) {
-                    tracing::warn!("unsafe asar path: {inner_path}");
+                    tracing::debug!("unsafe asar path: {inner_path}");
                     continue;
                 }
 
@@ -413,7 +463,7 @@ fn handle_asar_archive_in_memory(buffer: &[u8], archive_path: &Path) -> Result<C
                 let data = file.data();
                 let take = data.len().min(MAX_ASAR_ENTRY_BYTES);
                 if take < data.len() {
-                    tracing::warn!(
+                    tracing::debug!(
                         "asar entry {} exceeded {} byte cap; truncating",
                         inner_path,
                         MAX_ASAR_ENTRY_BYTES
@@ -423,7 +473,7 @@ fn handle_asar_archive_in_memory(buffer: &[u8], archive_path: &Path) -> Result<C
             }
             Ok(CompressedContent::Archive(contents))
         }
-        Err(_) => Ok(CompressedContent::Archive(Vec::new())),
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -436,7 +486,7 @@ fn materialize_in_memory_archive_entries(
         let normalized_rel = rel.replace('\\', "/");
         let rel_path = Path::new(&normalized_rel);
         if !is_safe_extract_path(rel_path) {
-            tracing::warn!("unsafe archive path: {normalized_rel}");
+            tracing::debug!("unsafe archive path: {normalized_rel}");
             continue;
         }
 
@@ -471,7 +521,7 @@ fn safe_create_for_write(path: &Path) -> Result<fs::File> {
 /// bomb" cannot expand without limit and exhaust the scanner's temporary
 /// filesystem. Output past the cap is dropped and a truncation warning logged.
 // nosemgrep: this is the defensive cap — do not flag for missing-limit rules.
-pub const MAX_SINGLE_STREAM_DECOMPRESSED_BYTES: u64 = 512 * 1024 * 1024;
+pub const MAX_SINGLE_STREAM_DECOMPRESSED_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 
 /// `Write` adaptor that drops everything past `remaining` bytes.
 ///
@@ -525,7 +575,7 @@ fn stream_to_file_capped<R: Read>(
     let mut capped = CappedWriter::new(out_file, cap);
     std::io::copy(&mut decoder, &mut capped)?;
     if capped.truncated() {
-        tracing::warn!(
+        tracing::debug!(
             "decompressed stream written to {} exceeded {cap} byte cap; truncating",
             out_path.display()
         );
@@ -540,7 +590,7 @@ fn stream_xz_to_file_capped(path: &Path, out_path: &Path, cap: u64) -> Result<Co
     let mut capped = CappedWriter::new(out_file, cap);
     xz_decompress(&mut reader, &mut capped)?;
     if capped.truncated() {
-        tracing::warn!(
+        tracing::debug!(
             "decompressed xz stream written to {} exceeded {cap} byte cap; truncating",
             out_path.display()
         );
@@ -817,6 +867,91 @@ mod tests {
             assert!(found, "did not find secret.txt in tgz ArchiveFiles");
         } else {
             panic!("expected ArchiveFiles for tgz archive, got {:?}", content);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn smoke_decompress_truncated_tgz_archive_keeps_partial_entries() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let tgz = dir.path().join("payload.tgz");
+        let github_pat = "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"; // this is not a real secret
+
+        {
+            let f = File::create(&tgz)?;
+            let gz = GzEncoder::new(f, Compression::default());
+            let mut tar = Builder::new(gz);
+
+            let first = format!("token={github_pat}\n");
+            let mut hdr = tar::Header::new_gnu();
+            hdr.set_size(first.len() as u64);
+            hdr.set_mode(0o644);
+            hdr.set_cksum();
+            tar.append_data(&mut hdr, "first.txt", first.as_bytes())?;
+
+            let second = vec![b'B'; 4096];
+            let mut hdr = tar::Header::new_gnu();
+            hdr.set_size(second.len() as u64);
+            hdr.set_mode(0o644);
+            hdr.set_cksum();
+            tar.append_data(&mut hdr, "second.txt", second.as_slice())?;
+
+            tar.into_inner()?.finish()?;
+        }
+
+        let tmp = tempdir()?;
+        let content = super::decompress_file_with_single_stream_cap(&tgz, Some(tmp.path()), 1536)?;
+        if let CompressedContent::ArchiveFiles(files) = content {
+            let mut found = false;
+            for (logical, path) in files {
+                if logical.ends_with("!first.txt") {
+                    let txt = std::fs::read_to_string(&path)?;
+                    assert!(txt.contains(github_pat));
+                    found = true;
+                }
+            }
+            assert!(found, "did not recover first.txt from truncated archive");
+        } else {
+            panic!("expected ArchiveFiles for truncated tgz, got {:?}", content);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn smoke_decompress_truncated_tgz_archive_falls_back_to_raw_when_no_entry_completes()
+    -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let tgz = dir.path().join("payload.tgz");
+
+        {
+            let f = File::create(&tgz)?;
+            let gz = GzEncoder::new(f, Compression::default());
+            let mut tar = Builder::new(gz);
+
+            let first = vec![b'A'; 2048];
+            let mut hdr = tar::Header::new_gnu();
+            hdr.set_size(first.len() as u64);
+            hdr.set_mode(0o644);
+            hdr.set_cksum();
+            tar.append_data(&mut hdr, "secret.txt", first.as_slice())?;
+
+            tar.into_inner()?.finish()?;
+        }
+
+        let tmp = tempdir()?;
+        let content = super::decompress_file_with_single_stream_cap(&tgz, Some(tmp.path()), 600)?;
+        match content {
+            CompressedContent::RawFile(path) => {
+                let data = std::fs::read(&path)?;
+                let as_str = String::from_utf8_lossy(&data);
+                assert!(
+                    as_str.contains("secret.txt") || data.windows(5).any(|w| w == b"ustar"),
+                    "raw fallback should preserve tar bytes"
+                );
+            }
+            other => panic!("expected RawFile for heavily truncated tgz, got {:?}", other),
         }
 
         Ok(())

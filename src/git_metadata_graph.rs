@@ -136,7 +136,7 @@ pub(crate) struct RepositoryIndex {
     tags: ObjectIdBimap,
 }
 impl RepositoryIndex {
-    pub(crate) fn new(odb: &OdbHandle) -> Result<Self> {
+    pub(crate) fn new_with_deadline(odb: &OdbHandle, deadline: Option<Instant>) -> Result<Self> {
         use gix::{odb::store::iter::Ordering, prelude::*};
         let mut trees = ObjectIdBimap::with_capacity(0);
         let mut commits = ObjectIdBimap::with_capacity(0);
@@ -148,6 +148,7 @@ impl RepositoryIndex {
             .context("Failed to iterate object database")?
             .with_ordering(Ordering::PackAscendingOffsetThenLooseLexicographical)
         {
+            check_deadline(deadline, "repository object indexing")?;
             let oid = match oid_result {
                 Ok(oid) => oid,
                 Err(e) => {
@@ -259,11 +260,12 @@ pub(crate) struct CommitBlobMetadata {
 }
 
 impl GitMetadataGraph {
-    pub(crate) fn get_repo_metadata(
+    pub(crate) fn get_repo_metadata_with_deadline(
         self,
         repo_index: &RepositoryIndex,
         repo: &gix::Repository,
         exclude_globset: Option<&GlobSet>,
+        deadline: Option<Instant>,
     ) -> Result<Vec<CommitBlobMetadata>> {
         let _span =
             error_span!("get_repo_metadata", path = repo.path().display().to_string()).entered();
@@ -292,6 +294,7 @@ impl GitMetadataGraph {
             (0, commit_worklist.len(), 0);
 
         while let Some((_, commit_idx)) = commit_worklist.pop() {
+            check_deadline(deadline, "repository metadata computation")?;
             if visited_commits.put(commit_idx.index()) {
                 warn!("found duplicate commit node {}", commit_idx.index());
                 continue;
@@ -320,6 +323,7 @@ impl GitMetadataGraph {
                         &mut tree_buf,
                         &mut tree_worklist,
                         &mut blobs_encountered,
+                        deadline,
                     )?;
                 }
             } else {
@@ -434,9 +438,11 @@ fn visit_tree(
     tree_buf: &mut Vec<u8>,
     tree_worklist: &mut TreeWorklist,
     blobs_encountered: &mut Vec<ObjectIdx>,
+    deadline: Option<Instant>,
 ) -> Result<()> {
     blobs_encountered.clear();
     while let Some((name_path, tree_oid)) = tree_worklist.pop() {
+        check_deadline(deadline, "repository tree traversal")?;
         let tree_iter = match repo.objects.find_tree_iter(&tree_oid, tree_buf) {
             Ok(iter) => iter,
             Err(e) => {
@@ -446,6 +452,7 @@ fn visit_tree(
         };
         *num_trees_introduced += 1;
         for child_res in tree_iter {
+            check_deadline(deadline, "repository tree traversal")?;
             let child = match child_res {
                 Ok(child) => child,
                 Err(e) => {
@@ -494,6 +501,14 @@ fn visit_tree(
     }
     for idx in blobs_encountered.drain(..) {
         seen.insert_blob(idx)?;
+    }
+    Ok(())
+}
+
+#[inline]
+fn check_deadline(deadline: Option<Instant>, phase: &str) -> Result<()> {
+    if deadline.is_some_and(|deadline| Instant::now() > deadline) {
+        bail!("{phase} timed out")
     }
     Ok(())
 }

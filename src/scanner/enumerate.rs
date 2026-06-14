@@ -492,7 +492,7 @@ impl ParallelBlobIterator for FileResult {
                 },
                 Err(e) => {
                     debug!("Failed to decompress {}: {}", self.path.display(), e);
-                    Ok(None) // Skip on decompression failure
+                    self.raw_blob_iter().map(Some)
                 }
             }
         } else {
@@ -920,6 +920,8 @@ impl<'a> rayon::iter::ParallelIterator for GitRepoResultIter<'a> {
             GitBlobSource::StreamFromOdb => {
                 let (blob_tx, blob_rx) = crossbeam_channel::bounded(8192);
                 let enum_repo_sync = Arc::clone(&repo_sync);
+                let enum_repo_path = Arc::clone(&repo_path);
+                let enum_flag = Arc::clone(&flag);
 
                 std::thread::Builder::new()
                     .name("odb_enumerator".to_string())
@@ -936,6 +938,15 @@ impl<'a> rayon::iter::ParallelIterator for GitRepoResultIter<'a> {
                         for oid_result in iter
                             .with_ordering(OdbOrdering::PackAscendingOffsetThenLooseLexicographical)
                         {
+                            if StdInstant::now() > deadline {
+                                if !enum_flag.swap(true, Ordering::Relaxed) {
+                                    debug!(
+                                        "Git repo ODB enumeration at {} timed-out",
+                                        enum_repo_path.display()
+                                    );
+                                }
+                                break;
+                            }
                             let oid = match oid_result {
                                 Ok(oid) => oid,
                                 Err(_) => continue,
@@ -1086,59 +1097,26 @@ impl<'cfg> ParallelBlobIterator for (&'cfg EnumeratorConfig, FoundInput) {
                 let collect_git_metadata = cfg.collect_git_metadata;
                 let timeout = cfg.repo_scan_timeout;
 
-                // Spawn an enumerator thread so we can time-out cleanly
-                let path_clone = path.to_path_buf();
-                let (tx, rx) = std::sync::mpsc::channel();
-                let exclude_globset = cfg.exclude_globset.clone();
-                let diff_cfg = cfg.git_diff.clone();
-                let handle = std::thread::spawn(move || {
-                    let res = if let Some(diff_cfg) = diff_cfg {
-                        enumerate_git_diff_repo(
-                            &path_clone,
-                            repository,
-                            diff_cfg,
-                            exclude_globset.clone(),
-                            collect_git_metadata,
-                        )
-                    } else if collect_git_metadata {
-                        GitRepoWithMetadataEnumerator::new(
-                            &path_clone,
-                            repository,
-                            exclude_globset.clone(),
-                        )
-                        .run()
-                    } else {
-                        GitRepoEnumerator::new(&path_clone, repository).run()
-                    };
-                    let _ = tx.send(res);
-                });
-
-                // Wait for enumeration, polling every 100 ms
-                let git_result = loop {
-                    if t_start.elapsed() > timeout {
-                        debug!(
-                            "Git repo enumeration at {} timed-out after {:.1}s (> {} s)",
-                            path.display(),
-                            t_start.elapsed().as_secs_f64(),
-                            timeout.as_secs()
-                        );
-                        // Abandon the worker thread and skip this repo
-                        return Ok(None);
-                    }
-
-                    match rx.try_recv() {
-                        Ok(res) => break res,
-                        Err(std::sync::mpsc::TryRecvError::Empty) => {
-                            std::thread::sleep(std::time::Duration::from_millis(100));
-                        }
-                        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                            debug!("Enumerator thread disconnected for {}", path.display());
-                            return Ok(None);
-                        }
-                    }
+                let deadline = Instant::now() + timeout;
+                let git_result = if let Some(diff_cfg) = cfg.git_diff.clone() {
+                    enumerate_git_diff_repo(
+                        path,
+                        repository,
+                        diff_cfg,
+                        cfg.exclude_globset.clone(),
+                        collect_git_metadata,
+                        deadline,
+                    )
+                } else if collect_git_metadata {
+                    GitRepoWithMetadataEnumerator::new(
+                        path,
+                        repository,
+                        cfg.exclude_globset.clone(),
+                    )
+                    .run_with_deadline(Some(deadline))
+                } else {
+                    GitRepoEnumerator::new(path, repository).run()
                 };
-
-                let _ = handle.join(); // avoid leak
 
                 match git_result {
                     Err(e) => {
@@ -1181,7 +1159,9 @@ fn enumerate_git_diff_repo(
     diff_cfg: GitDiffConfig,
     exclude_globset: Option<std::sync::Arc<globset::GlobSet>>,
     collect_commit_metadata: bool,
+    deadline: Instant,
 ) -> Result<GitRepoResult> {
+    check_repo_deadline(deadline, path, "git diff setup")?;
     let GitDiffConfig { since_ref, branch_ref, branch_root, staged } = diff_cfg;
 
     let (branch_ref, since_ref, branch_root) = if staged {
@@ -1204,10 +1184,12 @@ fn enumerate_git_diff_repo(
     };
 
     let blobs = {
+        check_repo_deadline(deadline, path, "git diff ref resolution")?;
         let head_id = resolve_diff_ref(&repository, path, &branch_ref).with_context(|| {
             format!("Failed to resolve --branch '{}' in repository {}", branch_ref, path.display())
         })?;
 
+        check_repo_deadline(deadline, path, "git diff commit loading")?;
         let head_commit = head_id
             .object()
             .with_context(|| format!("Failed to load commit {} for diffing", head_id.to_hex()))?
@@ -1221,6 +1203,7 @@ fn enumerate_git_diff_repo(
         let mut base_tree = None;
 
         if let Some(ref since_ref_value) = since_ref {
+            check_repo_deadline(deadline, path, "git diff base resolution")?;
             let base_id =
                 resolve_diff_ref(&repository, path, since_ref_value).with_context(|| {
                     format!(
@@ -1243,6 +1226,7 @@ fn enumerate_git_diff_repo(
 
             base_tree = Some(tree);
         } else if let Some(ref branch_root_value) = branch_root {
+            check_repo_deadline(deadline, path, "git diff branch-root resolution")?;
             let root_id =
                 resolve_diff_ref(&repository, path, branch_root_value).with_context(|| {
                     format!(
@@ -1278,6 +1262,7 @@ fn enumerate_git_diff_repo(
             }
         }
 
+        check_repo_deadline(deadline, path, "git diff computation")?;
         let changes = repository
             .diff_tree_to_tree(base_tree.as_ref(), Some(&head_tree), None)
             .with_context(|| {
@@ -1314,6 +1299,7 @@ fn enumerate_git_diff_repo(
 
         let mut blobs = Vec::new();
         for change in changes {
+            check_repo_deadline(deadline, path, "git diff change enumeration")?;
             let (entry_mode, id, location) = match change {
                 ChangeDetached::Addition { entry_mode, id, location, .. } => {
                     (entry_mode, id, location)
@@ -1358,6 +1344,13 @@ fn enumerate_git_diff_repo(
         path: path.to_owned(),
         blobs: GitBlobSource::Precomputed(blobs),
     })
+}
+
+fn check_repo_deadline(deadline: Instant, path: &Path, phase: &str) -> Result<()> {
+    if Instant::now() > deadline {
+        bail!("{phase} timed out for repo {}", path.display());
+    }
+    Ok(())
 }
 
 fn synthesize_staged_commit(path: &Path, parent_ref: &str) -> Result<String> {
@@ -1490,8 +1483,11 @@ fn reference_candidates(reference: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
     use std::{fs, io::Write};
+    use std::{
+        path::Path,
+        time::{Duration, Instant},
+    };
 
     use super::{
         FileResult, GitBlobSource, GitDiffConfig, ParallelBlobIterator, enumerate_git_diff_repo,
@@ -1589,6 +1585,7 @@ mod tests {
             },
             None,
             false,
+            Instant::now() + Duration::from_secs(60),
         )?;
 
         let blobs = match result.blobs {
@@ -1670,6 +1667,32 @@ mod tests {
         assert_eq!(blobs.len(), 1);
         assert_eq!(blobs[0].0, path);
         assert_eq!(blobs[0].1, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn compressed_archives_fall_back_to_raw_bytes_when_extraction_fails() -> Result<()> {
+        let dir = tempdir()?;
+
+        for (name, expected) in [
+            ("broken.zip", b"not-a-real-zip".to_vec()),
+            ("broken.asar", b"not-a-real-asar".to_vec()),
+        ] {
+            let path = dir.path().join(name);
+            fs::write(&path, &expected)?;
+
+            let blobs = collect_file_bytes(FileResult {
+                path: path.clone(),
+                num_bytes: expected.len() as u64,
+                extract_archives: true,
+                extraction_depth: 2,
+            })?;
+
+            assert_eq!(blobs.len(), 1, "{} should fall back to raw bytes", name);
+            assert_eq!(blobs[0].0, path);
+            assert_eq!(blobs[0].1, expected);
+        }
+
         Ok(())
     }
 

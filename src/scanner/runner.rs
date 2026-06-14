@@ -3,7 +3,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
@@ -856,6 +856,59 @@ async fn run_parallel_scan(
     let repo_errors: Arc<Mutex<Vec<anyhow::Error>>> = Arc::new(Mutex::new(Vec::new()));
     let output_to_file = args.output_args.output.is_some();
 
+    // Bound concurrent in-flight repo scans. The bounded `repo_rx` only caps
+    // repos sitting on the channel; without an in-flight permit here the loop
+    // below would drain `repo_rx` as fast as cloners produce and queue every
+    // streamed repo into rayon's unbounded work queue. The permit forces the
+    // receiver to block once rayon is saturated, which restores backpressure
+    // through `repo_rx` to the cloner's bounded internal `ready_tx` channel.
+    // Sized at 2× the rayon worker count so workers always have a few ready
+    // repos staged and pick up the next as soon as one finishes.
+    let scan_inflight_cap = std::cmp::max(repo_concurrency * 2, repo_concurrency + 4);
+    let (permit_return, permit_take) = crossbeam_channel::bounded::<()>(scan_inflight_cap);
+    for _ in 0..scan_inflight_cap {
+        permit_return.try_send(()).expect("permit channel sized for cap");
+    }
+
+    let active_scans = Arc::new(AtomicUsize::new(0));
+
+    // Optional saturation tracker — gated on `-v` (DEBUG level). One thread,
+    // not per-task. Logs every ~15s while the scan is active so a future hang
+    // is diagnosable from logs alone without needing to attach gdb to the
+    // running process.
+    let tracker_stop = Arc::new(AtomicBool::new(false));
+    let tracker_handle = if global_args.verbose >= 1 {
+        let stop = Arc::clone(&tracker_stop);
+        let active = Arc::clone(&active_scans);
+        let rx = repo_rx.clone();
+        let permits = permit_return.clone();
+        let cap = scan_inflight_cap;
+        std::thread::Builder::new()
+            .name("kf-scan-tracker".to_string())
+            .spawn(move || {
+                // Sleep in 500ms slices so shutdown after the rayon scope ends
+                // is prompt — at most ~500ms wait for join, not a full tick.
+                loop {
+                    for _ in 0..30 {
+                        if stop.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                    }
+                    debug!(
+                        "scan-saturation: active_repo_scans={} repo_channel_depth={} permits_available={} inflight_cap={}",
+                        active.load(Ordering::Relaxed),
+                        rx.len(),
+                        permits.len(),
+                        cap,
+                    );
+                }
+            })
+            .ok()
+    } else {
+        None
+    };
+
     rayon::ThreadPoolBuilder::new()
         .num_threads(repo_concurrency)
         .build()
@@ -870,6 +923,17 @@ async fn run_parallel_scan(
                 Streamed,
             }
             let spawn_repo_scan = |root: PathBuf, source: ScanRootSource| {
+                // Acquire one permit from the pool before queueing into rayon.
+                // This is the load-bearing call for backpressure: when rayon
+                // is saturated and no scan has finished to release a permit,
+                // this `recv` blocks the for-loop driving `repo_rx.iter()`,
+                // which causes the bounded `repo_rx` to fill, which causes
+                // the cloner's bounded `ready_tx` send to block, which slows
+                // the cloner pool. Without it, 5,000 closures pile into
+                // rayon's unbounded work queue and the only thing limiting
+                // memory is process death.
+                permit_take.recv().expect("permit pool closed unexpectedly");
+
                 let repo_rules = repo_rules.clone();
                 let base_clone_root = base_clone_root.clone();
                 let baseline_path = Arc::clone(baseline_path);
@@ -883,8 +947,35 @@ async fn run_parallel_scan(
                 let repo_errors = Arc::clone(&repo_errors);
                 let datastore = Arc::clone(datastore);
                 let access_map = access_map_collector.clone();
+                let permit_release = permit_return.clone();
+                let scan_counter = Arc::clone(&active_scans);
+
+                scan_counter.fetch_add(1, Ordering::Relaxed);
 
                 scope.spawn(move |_| {
+                    // Release the permit and decrement the active-scan
+                    // counter when this closure exits — including via early
+                    // return, error, or unwinding panic in debug builds.
+                    // (`panic = "abort"` in release means the process dies
+                    // before Drop runs, but that's fine: the permit pool
+                    // dies with it.)
+                    struct ScanGuard {
+                        permit_release: crossbeam_channel::Sender<()>,
+                        scan_counter: Arc<AtomicUsize>,
+                    }
+                    impl Drop for ScanGuard {
+                        fn drop(&mut self) {
+                            self.scan_counter.fetch_sub(1, Ordering::Relaxed);
+                            // Bounded to the same cap we pre-filled, and we
+                            // only send one permit per `recv`, so this can
+                            // never fail with `Full`. Use `try_send` so a
+                            // logic bug surfaces immediately rather than
+                            // blocking a worker thread on cleanup.
+                            let _ = self.permit_release.try_send(());
+                        }
+                    }
+                    let _guard = ScanGuard { permit_release, scan_counter };
+
                     let result: Result<()> = (|| {
                         let repo_datastore =
                             Arc::new(Mutex::new(FindingsStore::new(base_clone_root.clone())));
@@ -1022,6 +1113,13 @@ async fn run_parallel_scan(
                 spawn_repo_scan(root, ScanRootSource::Streamed);
             }
         });
+
+    // Stop the saturation tracker before joining downstream handles so its
+    // periodic output doesn't interleave with the scan-completion summary.
+    tracker_stop.store(true, Ordering::Relaxed);
+    if let Some(handle) = tracker_handle {
+        let _ = handle.join();
+    }
 
     if let Some(handle) = repo_clone_handle {
         let _ = handle.join();

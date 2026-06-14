@@ -1,12 +1,42 @@
 use std::{
+    io::Read,
     path::Path,
-    process::{Command, ExitStatus, Output, Stdio},
+    process::{Command, ExitStatus, Stdio},
+    time::Duration,
 };
 
-use tracing::{debug, debug_span};
+use tracing::{debug, debug_span, warn};
 use url::Url;
+use wait_timeout::ChildExt;
 
 use crate::{bitbucket::is_bitbucket_access_token, git_url::GitUrl};
+
+/// Default time budget for a fresh `git clone`. Generous so well-formed clones
+/// of large monorepos complete on slow networks, but bounded so a single
+/// unresponsive remote cannot park a clone worker indefinitely. Override per
+/// invocation via `KF_GIT_CLONE_TIMEOUT_SECS`.
+const DEFAULT_GIT_CLONE_TIMEOUT_SECS: u64 = 1200;
+
+/// Default time budget for `git remote update --prune` on an existing clone.
+/// Shorter than clone because the working tree already exists; the operation
+/// is fetching incremental refs. Override via `KF_GIT_UPDATE_TIMEOUT_SECS`.
+const DEFAULT_GIT_UPDATE_TIMEOUT_SECS: u64 = 600;
+
+fn timeout_from_env(var: &str, default_secs: u64) -> Duration {
+    std::env::var(var)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u64>().ok())
+        .map(Duration::from_secs)
+        .unwrap_or_else(|| Duration::from_secs(default_secs))
+}
+
+fn git_clone_timeout() -> Duration {
+    timeout_from_env("KF_GIT_CLONE_TIMEOUT_SECS", DEFAULT_GIT_CLONE_TIMEOUT_SECS)
+}
+
+fn git_update_timeout() -> Duration {
+    timeout_from_env("KF_GIT_UPDATE_TIMEOUT_SECS", DEFAULT_GIT_UPDATE_TIMEOUT_SECS)
+}
 
 const BITBUCKET_CREDENTIAL_HELPER: &str = r#"!_bbcreds() {
     if [ -n "$KF_BITBUCKET_OAUTH_TOKEN" ]; then
@@ -113,6 +143,12 @@ pub enum GitError {
         summary = format_git_error_summary(.stdout.as_slice(), .stderr.as_slice())
     )]
     GitError { stdout: Vec<u8>, stderr: Vec<u8>, status: ExitStatus },
+
+    /// `git` exceeded the configured per-operation time budget and was killed.
+    /// Surfaced to the caller so a single stuck repo doesn't park a clone
+    /// worker forever during large multi-repo scans.
+    #[error("git execution timed out after {secs} seconds")]
+    Timeout { secs: u64 },
 }
 
 fn format_exit_status(status: &ExitStatus) -> String {
@@ -305,18 +341,65 @@ impl Git {
         cmd
     }
 
-    /// Helper to run the constructed `git` command and capture its output.
+    /// Run the constructed `git` command with a hard wall-clock timeout.
     ///
-    /// Returns an error if the command fails or exits with a non-zero status.
-    fn run_cmd(&self, mut cmd: Command) -> Result<(), GitError> {
+    /// Spawns the child, drains stdout/stderr in dedicated reader threads
+    /// (otherwise a child that fills its pipe buffer would block before
+    /// the deadline could fire), and uses `wait-timeout` to wait without a
+    /// per-process polling loop. On timeout the child is SIGKILL'd and a
+    /// [`GitError::Timeout`] is returned so callers can surface the stuck
+    /// repo and move on instead of parking a clone worker forever.
+    fn run_cmd(&self, mut cmd: Command, timeout: Duration) -> Result<(), GitError> {
         debug!("{cmd:#?}");
-        let output: Output = cmd.output()?;
-        if !output.status.success() {
-            return Err(GitError::GitError {
-                stdout: output.stdout,
-                stderr: output.stderr,
-                status: output.status,
-            });
+        let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+
+        // Drain stdout/stderr off the main thread. Reader threads exit as
+        // soon as the child closes its end of the pipe, so this adds two
+        // short-lived threads per `git` invocation — comparable to what
+        // `Command::output()` does internally.
+        let mut stdout_pipe = child.stdout.take().expect("stdout was piped");
+        let mut stderr_pipe = child.stderr.take().expect("stderr was piped");
+        let stdout_reader = std::thread::spawn(move || -> std::io::Result<Vec<u8>> {
+            let mut buf = Vec::new();
+            stdout_pipe.read_to_end(&mut buf)?;
+            Ok(buf)
+        });
+        let stderr_reader = std::thread::spawn(move || -> std::io::Result<Vec<u8>> {
+            let mut buf = Vec::new();
+            stderr_pipe.read_to_end(&mut buf)?;
+            Ok(buf)
+        });
+
+        let status = match child.wait_timeout(timeout) {
+            Ok(Some(status)) => status,
+            Ok(None) => {
+                // Timeout. Killing the child closes its stdout/stderr, which
+                // unblocks the reader threads. We reap with `wait()` so we
+                // don't leave a zombie behind.
+                let secs = timeout.as_secs();
+                warn!("git command exceeded {secs}s timeout; killing pid {}", child.id());
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = stdout_reader.join();
+                let _ = stderr_reader.join();
+                return Err(GitError::Timeout { secs });
+            }
+            Err(e) => {
+                // wait_timeout itself failed — kill defensively so we don't
+                // leak the child, then surface the I/O error.
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = stdout_reader.join();
+                let _ = stderr_reader.join();
+                return Err(GitError::IOError(e));
+            }
+        };
+
+        let stdout = stdout_reader.join().unwrap_or_else(|_| Ok(Vec::new())).unwrap_or_default();
+        let stderr = stderr_reader.join().unwrap_or_else(|_| Ok(Vec::new())).unwrap_or_default();
+
+        if !status.success() {
+            return Err(GitError::GitError { stdout, stderr, status });
         }
         Ok(())
     }
@@ -340,7 +423,7 @@ impl Git {
         cmd.arg("update");
         cmd.arg("--prune");
         debug!("{cmd:#?}");
-        self.run_cmd(cmd)
+        self.run_cmd(cmd, git_update_timeout())
     }
 
     /// Create a fresh clone of the specified repository in either bare or mirror mode.
@@ -367,7 +450,7 @@ impl Git {
         cmd.arg(self.repo_arg_for_clone(repo_url));
         cmd.arg(output_dir);
         debug!("{cmd:#?}");
-        self.run_cmd(cmd)
+        self.run_cmd(cmd, git_clone_timeout())
     }
 
     fn repo_arg_for_clone(&self, repo_url: &GitUrl) -> String {
@@ -660,6 +743,41 @@ mod tests {
         git.create_fresh_clone(&url, temp_dir.path(), CloneMode::Bare)?;
         git.update_clone(&url, temp_dir.path())?;
         Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_run_cmd_kills_on_timeout() {
+        // Use `sleep` as a controlled long-running stand-in for a stuck `git`.
+        // The point is to verify that the timeout path kills the child and
+        // surfaces GitError::Timeout instead of hanging the caller.
+        let git = Git::default();
+        let mut cmd = std::process::Command::new("sleep");
+        cmd.arg("30");
+        let start = std::time::Instant::now();
+        let err = git.run_cmd(cmd, Duration::from_millis(200)).unwrap_err();
+        let elapsed = start.elapsed();
+
+        assert!(matches!(err, GitError::Timeout { secs: 0 }), "expected Timeout, got {err:?}");
+        // Allow generous slack for slow CI but make sure we didn't actually
+        // wait the full 30s.
+        assert!(elapsed < Duration::from_secs(5), "should have killed promptly, took {elapsed:?}");
+    }
+
+    #[test]
+    fn test_timeout_from_env_parses_and_falls_back() {
+        // Fallback when unset.
+        temp_env::with_var("KF_GIT_FAKE_TIMEOUT", None::<&str>, || {
+            assert_eq!(timeout_from_env("KF_GIT_FAKE_TIMEOUT", 42).as_secs(), 42);
+        });
+        // Parses a valid value.
+        temp_env::with_var("KF_GIT_FAKE_TIMEOUT", Some("7"), || {
+            assert_eq!(timeout_from_env("KF_GIT_FAKE_TIMEOUT", 42).as_secs(), 7);
+        });
+        // Garbage falls back to default rather than blowing up.
+        temp_env::with_var("KF_GIT_FAKE_TIMEOUT", Some("not a number"), || {
+            assert_eq!(timeout_from_env("KF_GIT_FAKE_TIMEOUT", 42).as_secs(), 42);
+        });
     }
 
     #[test]
