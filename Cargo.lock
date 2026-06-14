@@ -4958,7 +4958,7 @@ dependencies = [
 
 [[package]]
 name = "kingfisher"
-version = "1.102.1"
+version = "1.103.0"
 dependencies = [
  "anyhow",
  "asar",
