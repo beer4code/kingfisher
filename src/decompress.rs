@@ -145,6 +145,11 @@ fn handle_tar_archive_streaming(
                         Ok(n) => n,
                         Err(e) => {
                             tracing::debug!("failed to extract {}: {}", out_path.display(), e);
+                            // Drop the handle before removing so the partial
+                            // file is deletable on Windows, then discard it so
+                            // it doesn't accumulate in the temp extraction dir.
+                            drop(out_file);
+                            let _ = fs::remove_file(&out_path);
                             truncated = true;
                             break;
                         }
@@ -155,6 +160,8 @@ fn handle_tar_archive_streaming(
                             path_in_tar,
                             archive_path.display()
                         );
+                        drop(out_file);
+                        let _ = fs::remove_file(&out_path);
                         truncated = true;
                         break;
                     }

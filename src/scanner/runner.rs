@@ -970,8 +970,21 @@ async fn run_parallel_scan(
                             // only send one permit per `recv`, so this can
                             // never fail with `Full`. Use `try_send` so a
                             // logic bug surfaces immediately rather than
-                            // blocking a worker thread on cleanup.
-                            let _ = self.permit_release.try_send(());
+                            // blocking a worker thread on cleanup. A failure
+                            // here means the permit accounting is broken, so
+                            // assert in debug/test builds; in release we log
+                            // instead of panicking, since unwinding out of a
+                            // `Drop` (this guard drops during panic unwind)
+                            // would abort the process.
+                            if let Err(err) = self.permit_release.try_send(()) {
+                                debug_assert!(
+                                    false,
+                                    "permit pool overflowed or disconnected on cleanup: {err}"
+                                );
+                                tracing::error!(
+                                    "permit pool overflowed or disconnected on cleanup: {err}"
+                                );
+                            }
                         }
                     }
                     let _guard = ScanGuard { permit_release, scan_counter };
