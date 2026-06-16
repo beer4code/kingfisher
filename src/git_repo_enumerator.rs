@@ -77,7 +77,7 @@ impl<'a> GitRepoWithMetadataEnumerator<'a> {
         // let _span = debug_span!("enumerate_git_with_metadata", path = ?self.path).entered();
         check_deadline(deadline, "git repository metadata enumeration", self.path)?;
         let odb = &self.repo.objects;
-        let object_index = RepositoryIndex::new_with_deadline(odb, deadline)?;
+        let object_index = RepositoryIndex::new_with_deadline(odb, deadline, self.path)?;
 
         debug!(
             "Indexed {} objects in {:.6}s; {} blobs; {} commits",

@@ -909,6 +909,30 @@ async fn run_parallel_scan(
         None
     };
 
+    // RAII: guarantee the tracker thread is stopped and joined on *every* exit
+    // path, including an early `?` return from the pool build below. Without
+    // this, a build failure would leak the thread (it holds clones of
+    // `repo_rx`, the permit pool, and `active_scans`). On the normal path we
+    // still call `shutdown()` explicitly to control ordering vs. the summary.
+    struct TrackerGuard {
+        stop: Arc<AtomicBool>,
+        handle: Option<std::thread::JoinHandle<()>>,
+    }
+    impl TrackerGuard {
+        fn shutdown(&mut self) {
+            self.stop.store(true, Ordering::Relaxed);
+            if let Some(handle) = self.handle.take() {
+                let _ = handle.join();
+            }
+        }
+    }
+    impl Drop for TrackerGuard {
+        fn drop(&mut self) {
+            self.shutdown();
+        }
+    }
+    let mut tracker = TrackerGuard { stop: tracker_stop, handle: tracker_handle };
+
     rayon::ThreadPoolBuilder::new()
         .num_threads(repo_concurrency)
         .build()
@@ -1129,10 +1153,7 @@ async fn run_parallel_scan(
 
     // Stop the saturation tracker before joining downstream handles so its
     // periodic output doesn't interleave with the scan-completion summary.
-    tracker_stop.store(true, Ordering::Relaxed);
-    if let Some(handle) = tracker_handle {
-        let _ = handle.join();
-    }
+    tracker.shutdown();
 
     if let Some(handle) = repo_clone_handle {
         let _ = handle.join();

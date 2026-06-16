@@ -1,4 +1,4 @@
-use std::{collections::BinaryHeap, time::Instant};
+use std::{collections::BinaryHeap, path::Path, time::Instant};
 
 use anyhow::{Context, Result, bail};
 use bstr::{BString, ByteSlice};
@@ -136,7 +136,11 @@ pub(crate) struct RepositoryIndex {
     tags: ObjectIdBimap,
 }
 impl RepositoryIndex {
-    pub(crate) fn new_with_deadline(odb: &OdbHandle, deadline: Option<Instant>) -> Result<Self> {
+    pub(crate) fn new_with_deadline(
+        odb: &OdbHandle,
+        deadline: Option<Instant>,
+        repo_path: &Path,
+    ) -> Result<Self> {
         use gix::{odb::store::iter::Ordering, prelude::*};
         let mut trees = ObjectIdBimap::with_capacity(0);
         let mut commits = ObjectIdBimap::with_capacity(0);
@@ -148,7 +152,7 @@ impl RepositoryIndex {
             .context("Failed to iterate object database")?
             .with_ordering(Ordering::PackAscendingOffsetThenLooseLexicographical)
         {
-            check_deadline(deadline, "repository object indexing")?;
+            check_deadline(deadline, "repository object indexing", repo_path)?;
             let oid = match oid_result {
                 Ok(oid) => oid,
                 Err(e) => {
@@ -294,7 +298,7 @@ impl GitMetadataGraph {
             (0, commit_worklist.len(), 0);
 
         while let Some((_, commit_idx)) = commit_worklist.pop() {
-            check_deadline(deadline, "repository metadata computation")?;
+            check_deadline(deadline, "repository metadata computation", repo.path())?;
             if visited_commits.put(commit_idx.index()) {
                 warn!("found duplicate commit node {}", commit_idx.index());
                 continue;
@@ -442,7 +446,7 @@ fn visit_tree(
 ) -> Result<()> {
     blobs_encountered.clear();
     while let Some((name_path, tree_oid)) = tree_worklist.pop() {
-        check_deadline(deadline, "repository tree traversal")?;
+        check_deadline(deadline, "repository tree traversal", repo.path())?;
         let tree_iter = match repo.objects.find_tree_iter(&tree_oid, tree_buf) {
             Ok(iter) => iter,
             Err(e) => {
@@ -452,7 +456,7 @@ fn visit_tree(
         };
         *num_trees_introduced += 1;
         for child_res in tree_iter {
-            check_deadline(deadline, "repository tree traversal")?;
+            check_deadline(deadline, "repository tree traversal", repo.path())?;
             let child = match child_res {
                 Ok(child) => child,
                 Err(e) => {
@@ -506,9 +510,9 @@ fn visit_tree(
 }
 
 #[inline]
-fn check_deadline(deadline: Option<Instant>, phase: &str) -> Result<()> {
+fn check_deadline(deadline: Option<Instant>, phase: &str, repo_path: &Path) -> Result<()> {
     if deadline.is_some_and(|deadline| Instant::now() > deadline) {
-        bail!("{phase} timed out")
+        bail!("{phase} timed out for {}", repo_path.display())
     }
     Ok(())
 }

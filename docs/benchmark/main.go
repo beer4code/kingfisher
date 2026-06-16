@@ -283,10 +283,24 @@ func (p *proxyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// directTransport forwards straight to the destination, ignoring any
+// HTTP_PROXY/HTTPS_PROXY in this process's environment. The default transport
+// honors those vars, which on a corporate network would route the counting
+// proxy's own forwards through an upstream proxy (or loop back into itself),
+// skewing request counts. Built once so connections are still pooled.
+var directTransport = func() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.Proxy = nil
+	return t
+}()
+
 func handleHTTP(w http.ResponseWriter, req *http.Request) {
 	// The incoming forward-proxy request already carries an absolute URL, so the
 	// rewrite is a no-op: forward it as-is.
-	proxy := httputil.ReverseProxy{Rewrite: func(*httputil.ProxyRequest) {}}
+	proxy := httputil.ReverseProxy{
+		Rewrite:   func(*httputil.ProxyRequest) {},
+		Transport: directTransport,
+	}
 	proxy.ServeHTTP(w, req)
 }
 

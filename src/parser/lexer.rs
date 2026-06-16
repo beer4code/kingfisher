@@ -419,9 +419,7 @@ fn context_lines(text: &str) -> impl Iterator<Item = Cow<'_, str>> {
         // still holds literal values worth surfacing.
         if !flushed {
             flushed = true;
-            if active
-                && !current.is_empty()
-                && !extract_literal_values(&current, false).is_empty()
+            if active && !current.is_empty() && !extract_literal_values(&current, false).is_empty()
             {
                 return Some(Cow::Owned(std::mem::take(&mut current)));
             }
