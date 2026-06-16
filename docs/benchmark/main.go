@@ -346,7 +346,7 @@ func runScanCommand(args []string, stdout, stderr io.Writer) time.Duration {
 	atomic.StoreInt64(&netReqCount, 0)
 
 	cmd := exec.Command(args[0], args[1:]...)
-	cmd.Env = append(os.Environ(), "HTTP_PROXY="+proxyAddr, "HTTPS_PROXY="+proxyAddr)
+	cmd.Env = append(os.Environ(), "HTTP_PROXY=http://"+proxyAddr, "HTTPS_PROXY=http://"+proxyAddr)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 

@@ -75,7 +75,7 @@ impl<'a> GitRepoWithMetadataEnumerator<'a> {
     pub fn run_with_deadline(self, deadline: Option<Instant>) -> Result<GitRepoResult> {
         let started = Instant::now();
         // let _span = debug_span!("enumerate_git_with_metadata", path = ?self.path).entered();
-        check_deadline(deadline, "git repository metadata enumeration")?;
+        check_deadline(deadline, "git repository metadata enumeration", self.path)?;
         let odb = &self.repo.objects;
         let object_index = RepositoryIndex::new_with_deadline(odb, deadline)?;
 
@@ -93,7 +93,7 @@ impl<'a> GitRepoWithMetadataEnumerator<'a> {
         // Build commit graph first; materialize committer metadata only for commits that
         // actually introduce blobs.
         for commit_oid in object_index.commits() {
-            check_deadline(deadline, "git commit graph enumeration")?;
+            check_deadline(deadline, "git commit graph enumeration", self.path)?;
             let commit = match odb.find_commit(commit_oid, &mut scratch) {
                 Ok(commit) => commit,
                 Err(e) => {
@@ -134,7 +134,7 @@ impl<'a> GitRepoWithMetadataEnumerator<'a> {
                 debug!("Failed to compute reachable blobs; ignoring metadata: {e}");
                 let mut blobs = Vec::with_capacity(all_blobs.len());
                 for blob_oid in all_blobs {
-                    check_deadline(deadline, "git blob metadata assembly")?;
+                    check_deadline(deadline, "git blob metadata assembly", self.path)?;
                     blobs.push(GitBlobMetadata { blob_oid, first_seen: Default::default() });
                 }
                 blobs
@@ -146,7 +146,7 @@ impl<'a> GitRepoWithMetadataEnumerator<'a> {
                     HashMap::with_capacity_and_hasher(all_blobs.len(), Default::default());
 
                 for e in metadata {
-                    check_deadline(deadline, "git commit metadata assembly")?;
+                    check_deadline(deadline, "git commit metadata assembly", self.path)?;
                     if e.introduced_blobs.is_empty() {
                         continue;
                     }
@@ -196,7 +196,7 @@ impl<'a> GitRepoWithMetadataEnumerator<'a> {
                 // Iterate in pack-ascending order (from RepositoryIndex) for I/O locality
                 let mut blobs = Vec::with_capacity(all_blobs.len());
                 for blob_oid in all_blobs {
-                    check_deadline(deadline, "git blob metadata assembly")?;
+                    check_deadline(deadline, "git blob metadata assembly", self.path)?;
                     let appearances = blob_appearances.remove(&blob_oid).unwrap_or_default();
                     if appearances.is_empty() {
                         blobs.push(GitBlobMetadata { blob_oid, first_seen: appearances });
@@ -236,9 +236,9 @@ impl<'a> GitRepoWithMetadataEnumerator<'a> {
 }
 
 #[inline]
-fn check_deadline(deadline: Option<Instant>, phase: &str) -> Result<()> {
+fn check_deadline(deadline: Option<Instant>, phase: &str, path: &Path) -> Result<()> {
     if deadline.is_some_and(|deadline| Instant::now() > deadline) {
-        bail!("{phase} timed out")
+        bail!("{phase} timed out for {}", path.display())
     }
     Ok(())
 }

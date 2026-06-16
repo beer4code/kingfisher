@@ -372,50 +372,62 @@ impl Flow {
     }
 }
 
-fn context_lines(text: &str) -> Vec<Cow<'_, str>> {
-    // Build the candidate list incrementally so that a stitched multi-line
-    // statement is emitted right after the line that completes it, rather
-    // than appended after the whole file. Callers early-exit (`is_break`)
-    // as soon as the sink is satisfied, so out-of-order stitched context
-    // would be skipped entirely once an early exit fires.
-    let mut lines: Vec<Cow<'_, str>> = Vec::new();
+fn context_lines(text: &str) -> impl Iterator<Item = Cow<'_, str>> {
+    // Yield candidates lazily so a caller that early-exits (`is_break`) once
+    // its sink is satisfied stops the scan immediately instead of paying for a
+    // full pass over the file. Each source line is yielded in order, and a
+    // stitched multi-line statement is yielded right after the line that
+    // completes it (so in-source-order extraction survives early exit).
+    let mut lines = text.lines();
     let mut current = String::new();
     let mut active = false;
+    // A stitched statement produced while handling a source line is buffered
+    // here and emitted on the next call, after that line.
+    let mut pending: Option<Cow<'_, str>> = None;
+    let mut flushed = false;
 
-    for line in text.lines() {
-        lines.push(Cow::Borrowed(line));
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
+    std::iter::from_fn(move || {
+        if let Some(stitched) = pending.take() {
+            return Some(stitched);
         }
 
-        if active {
-            current.push(' ');
-            current.push_str(trimmed);
-            let structure = scan_structure(&current);
-            if multiline_context_complete(&current, structure) {
-                lines.push(Cow::Owned(std::mem::take(&mut current)));
-                active = false;
+        for line in lines.by_ref() {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() {
+                if active {
+                    current.push(' ');
+                    current.push_str(trimmed);
+                    let structure = scan_structure(&current);
+                    if multiline_context_complete(&current, structure) {
+                        pending = Some(Cow::Owned(std::mem::take(&mut current)));
+                        active = false;
+                    }
+                } else if starts_multiline_context(trimmed) {
+                    current.push_str(trimmed);
+                    let structure = scan_structure(&current);
+                    if multiline_context_complete(&current, structure) {
+                        current.clear();
+                    } else {
+                        active = true;
+                    }
+                }
             }
-            continue;
+            return Some(Cow::Borrowed(line));
         }
 
-        if starts_multiline_context(trimmed) {
-            current.push_str(trimmed);
-            let structure = scan_structure(&current);
-            if multiline_context_complete(&current, structure) {
-                current.clear();
-            } else {
-                active = true;
+        // Source exhausted: emit the trailing incomplete statement once, if it
+        // still holds literal values worth surfacing.
+        if !flushed {
+            flushed = true;
+            if active
+                && !current.is_empty()
+                && !extract_literal_values(&current, false).is_empty()
+            {
+                return Some(Cow::Owned(std::mem::take(&mut current)));
             }
         }
-    }
-
-    if active && !current.is_empty() && !extract_literal_values(&current, false).is_empty() {
-        lines.push(Cow::Owned(current));
-    }
-
-    lines
+        None
+    })
 }
 
 #[derive(Clone, Copy, Default)]
