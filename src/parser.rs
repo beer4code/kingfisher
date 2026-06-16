@@ -288,6 +288,33 @@ mod tests {
     }
 
     #[test]
+    fn html_multiline_script_assignment_extracts_context() {
+        let source = br#"
+            <html>
+              <body>
+                <script>
+                  const auth0_client_secret =
+                    "abcd1234abcd1234abcd1234abcd1234";
+                </script>
+              </body>
+            </html>
+        "#;
+        let mut texts = Vec::new();
+        stream_context_candidates(source, &Language::Html, |text| {
+            texts.push(text.to_string());
+            true
+        })
+        .unwrap();
+
+        assert!(
+            texts
+                .iter()
+                .any(|text| text == "auth0_client_secret = abcd1234abcd1234abcd1234abcd1234"),
+            "expected multiline script assignment candidate, got {texts:?}"
+        );
+    }
+
+    #[test]
     fn comment_only_python_context_is_ignored() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let source = fs::read(root.join("testdata/parsers/comment_only_context.py")).unwrap();

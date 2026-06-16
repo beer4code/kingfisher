@@ -32,7 +32,8 @@ fuzz/*
 !fuzz/fuzz_targets/*.rs
 fuzz/corpus/
 fuzz/target/
-
+docs/benchmark/benchmark-*
+docs/benchmark/benchmark
 ### macOS ###
 # General
 .DS_Store

@@ -4958,7 +4958,7 @@ dependencies = [
 
 [[package]]
 name = "kingfisher"
-version = "1.102.0"
+version = "1.103.0"
 dependencies = [
  "anyhow",
  "asar",
@@ -5085,6 +5085,7 @@ dependencies = [
  "url",
  "uuid",
  "vectorscan-rs",
+ "wait-timeout",
  "walkdir",
  "webbrowser",
  "wiremock",

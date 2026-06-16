@@ -7,7 +7,24 @@ description: "Kingfisher release history: new features, rules, bug fixes, and im
 
 All notable changes to this project will be documented in this file.
 
+## [v1.103.0]
+- Git clone and remote-update operations now enforce wall-clock timeouts (20 min and 10 min defaults respectively) so a single unresponsive remote cannot park a clone worker indefinitely. Configurable via `KF_GIT_CLONE_TIMEOUT_SECS` and `KF_GIT_UPDATE_TIMEOUT_SECS`.
+- Deadline enforcement is now propagated through repository object indexing, commit-graph traversal, tree traversal, and blob metadata assembly, replacing the previous 100 ms polling loop with cooperative cancellation at each phase boundary.
+- Bounded concurrent in-flight repo scans with a permit pool sized at `2× repo_concurrency`. Without this cap, a large multi-repo scan could queue thousands of closures into rayon's unbounded work queue and exhaust memory before any scan completed. Pass `-v` to enable a saturation-tracker thread that logs queue depth, active scan count, and permit availability every ~15 s.
+- Resilient tar archive extraction: truncated or malformed archives now yield whatever entries completed successfully instead of failing the whole archive. If no entry completed, the archive falls back to a raw-bytes scan rather than being silently skipped.
+- Archive decompression failures (broken zip, asar, etc.) now fall back to scanning the file's raw bytes instead of skipping the file entirely.
+- Raised the single-stream decompression cap from 512 MB to 4 GB.
+- Demoted expected truncation and path-filter log events from `warn` to `debug` across tar, zip, and asar extractors to reduce noise in normal operation.
+- Context verifier now stitches split assignments — where the variable name appears on one line and the value on the next — into a single candidate, so secrets assigned across two lines are no longer missed.
+- Expanded string literal coverage in the context verifier: Rust raw strings (`r#"..."#`, `br#"..."#`), Python/Ruby triple-quoted strings (`"""..."""`, `'''...'''`), C# interpolated-verbatim strings (`$@"..."`, `@$"..."`), and language-prefix variants (`b"..."`, `f"..."`, `rb"..."`, etc.) are all now recognized and correctly stripped.
+- Go backtick strings are now parsed as verbatim string literals in the context verifier.
+- Hex and underscore-separated numeric literals (`0xFF`, `1_000_000`) are now matched in assignment patterns.
+
 ## [v1.102.0]
+- Security: hardened ASAR and in-memory archive extraction to skip traversal or absolute entry paths before writing to the temp extraction directory.
+- Security: git clone provider tokens (`KF_GITHUB_TOKEN`, `KF_GITLAB_TOKEN`, `KF_GITEA_TOKEN`, `KF_AZURE_TOKEN`, `KF_HUGGINGFACE_TOKEN`) are now installed as host-scoped, HTTPS-only credential helpers (`credential.https://<host>.helper`) instead of unscoped global ones, so a malicious clone target can no longer capture them via an auth challenge. Trusted hosts derive from each provider's SaaS default plus any configured `--<provider>-api-url`/`--azure-base-url`/`--endpoint`, preserving GitHub Enterprise and other self-hosted flows.
+- Security: `--output` report files are opened with `O_NOFOLLOW` (with a symlink pre-check on non-Unix) so a symlink planted at the report path inside a scanned repository can no longer redirect the write to truncate or overwrite an arbitrary file.
+- Security: single-stream gzip/bzip2/xz/zlib decompression is now bounded by a 512 MB decompressed-byte cap, preventing a small compression bomb from exhausting disk during a scan.
 - Added 3 detection and validation rules for Cognition Devin API credentials: `kingfisher.devin.1` (legacy personal keys, `apk_user_` prefix), `kingfisher.devin.2` (legacy service keys, `apk_` prefix), and `kingfisher.devin.3` (v3 service-user tokens, `cog_` prefix / RFC 4648 base32). Live validation uses `GET /v1/sessions` for `apk_*` keys and `GET /v3/self` for `cog_` tokens.
 - Added `kingfisher scan docker --archive <image.tar>` for scanning saved Docker/OCI image archives directly, including OCI-layout `docker save` output and compressed tar archives.
 
