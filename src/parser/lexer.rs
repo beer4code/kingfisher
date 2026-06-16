@@ -373,11 +373,17 @@ impl Flow {
 }
 
 fn context_lines(text: &str) -> Vec<Cow<'_, str>> {
-    let mut lines: Vec<Cow<'_, str>> = text.lines().map(Cow::Borrowed).collect();
+    // Build the candidate list incrementally so that a stitched multi-line
+    // statement is emitted right after the line that completes it, rather
+    // than appended after the whole file. Callers early-exit (`is_break`)
+    // as soon as the sink is satisfied, so out-of-order stitched context
+    // would be skipped entirely once an early exit fires.
+    let mut lines: Vec<Cow<'_, str>> = Vec::new();
     let mut current = String::new();
     let mut active = false;
 
     for line in text.lines() {
+        lines.push(Cow::Borrowed(line));
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;

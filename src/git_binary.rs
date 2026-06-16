@@ -38,6 +38,50 @@ fn git_update_timeout() -> Duration {
     timeout_from_env("KF_GIT_UPDATE_TIMEOUT_SECS", DEFAULT_GIT_UPDATE_TIMEOUT_SECS)
 }
 
+/// Spawn the child as the leader of its own process group.
+///
+/// `git` routinely spawns helper processes — `git-remote-https`, `ssh`,
+/// credential helpers — and on a clone timeout those are exactly the
+/// processes likely wedged on network I/O. SIGKILL'ing only the immediate
+/// child would orphan them; they'd be reparented to init and keep running,
+/// accumulating across a large scan. Isolating the group lets
+/// [`kill_process_tree`] take down the entire tree at once.
+///
+/// Trade-off: because the child no longer shares Kingfisher's process group,
+/// a terminal `Ctrl-C` (SIGINT to the foreground group) no longer reaches
+/// `git` directly; the wall-clock timeout is what guarantees cleanup.
+///
+/// On Windows this is a no-op — tearing down the whole tree there requires a
+/// Job Object, which we don't set up; the immediate child is still killed.
+#[cfg(unix)]
+fn set_own_process_group(cmd: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    cmd.process_group(0);
+}
+
+#[cfg(not(unix))]
+fn set_own_process_group(_cmd: &mut Command) {}
+
+/// Kill the child and, on Unix, its entire process group, then reap the
+/// direct child to avoid leaving a zombie. Group members are reparented to
+/// init and reaped by it.
+#[cfg(unix)]
+fn kill_process_tree(child: &mut std::process::Child) {
+    // Negative PID targets the whole group, whose pgid equals the child's pid
+    // because we spawned it via `process_group(0)`.
+    let pgid = child.id() as i32;
+    unsafe {
+        libc::kill(-pgid, libc::SIGKILL);
+    }
+    let _ = child.wait();
+}
+
+#[cfg(not(unix))]
+fn kill_process_tree(child: &mut std::process::Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 const BITBUCKET_CREDENTIAL_HELPER: &str = r#"!_bbcreds() {
     if [ -n "$KF_BITBUCKET_OAUTH_TOKEN" ]; then
         echo username="x-token-auth";
@@ -351,7 +395,12 @@ impl Git {
     /// repo and move on instead of parking a clone worker forever.
     fn run_cmd(&self, mut cmd: Command, timeout: Duration) -> Result<(), GitError> {
         debug!("{cmd:#?}");
-        let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        // Put `git` in its own process group so that on timeout we can signal
+        // the entire tree, not just the immediate child (see
+        // `set_own_process_group`).
+        set_own_process_group(&mut cmd);
+        let mut child = cmd.spawn()?;
 
         // Drain stdout/stderr off the main thread. Reader threads exit as
         // soon as the child closes its end of the pipe, so this adds two
@@ -373,22 +422,25 @@ impl Git {
         let status = match child.wait_timeout(timeout) {
             Ok(Some(status)) => status,
             Ok(None) => {
-                // Timeout. Killing the child closes its stdout/stderr, which
-                // unblocks the reader threads. We reap with `wait()` so we
-                // don't leave a zombie behind.
+                // Timeout. Killing the whole process group closes every
+                // writer on the stdout/stderr pipes — including helpers like
+                // `git-remote-https`/`ssh` that may have inherited git's pipe
+                // ends — which unblocks the reader threads. `kill_process_tree`
+                // also reaps the direct child so we don't leave a zombie.
                 let secs = timeout.as_secs();
-                warn!("git command exceeded {secs}s timeout; killing pid {}", child.id());
-                let _ = child.kill();
-                let _ = child.wait();
+                warn!(
+                    "git command exceeded {secs}s timeout; killing process group of pid {}",
+                    child.id()
+                );
+                kill_process_tree(&mut child);
                 let _ = stdout_reader.join();
                 let _ = stderr_reader.join();
                 return Err(GitError::Timeout { secs });
             }
             Err(e) => {
                 // wait_timeout itself failed — kill defensively so we don't
-                // leak the child, then surface the I/O error.
-                let _ = child.kill();
-                let _ = child.wait();
+                // leak the child (or its helpers), then surface the I/O error.
+                kill_process_tree(&mut child);
                 let _ = stdout_reader.join();
                 let _ = stderr_reader.join();
                 return Err(GitError::IOError(e));
