@@ -2201,6 +2201,63 @@ rules:
     }
 
     #[test]
+    fn rule_cache_config_and_cli_precedence_respects_opt_out() {
+        let cfg = parse_str(
+            r#"
+rules:
+  cache: false
+"#,
+        )
+        .unwrap();
+        let (args, matches) = parse(&["kingfisher", "scan", "."]);
+        let mut global_args = args.global_args.clone();
+        let mut scan_args = into_scan(args);
+        super::apply_config(
+            &mut scan_args,
+            &mut global_args,
+            &cfg,
+            matches.subcommand_matches("scan"),
+        );
+        assert!(!scan_args.rule_cache.enabled(), "config rules.cache=false should disable cache");
+
+        let cfg = parse_str(
+            r#"
+rules:
+  cache: true
+"#,
+        )
+        .unwrap();
+        let (args, matches) = parse(&["kingfisher", "scan", "--no-rule-cache", "."]);
+        let mut global_args = args.global_args.clone();
+        let mut scan_args = into_scan(args);
+        super::apply_config(
+            &mut scan_args,
+            &mut global_args,
+            &cfg,
+            matches.subcommand_matches("scan"),
+        );
+        assert!(!scan_args.rule_cache.enabled(), "CLI --no-rule-cache should beat config");
+
+        let cfg = parse_str(
+            r#"
+rules:
+  cache: false
+"#,
+        )
+        .unwrap();
+        let (args, matches) = parse(&["kingfisher", "scan", "--rule-cache", "."]);
+        let mut global_args = args.global_args.clone();
+        let mut scan_args = into_scan(args);
+        super::apply_config(
+            &mut scan_args,
+            &mut global_args,
+            &cfg,
+            matches.subcommand_matches("scan"),
+        );
+        assert!(scan_args.rule_cache.enabled(), "CLI --rule-cache should beat config");
+    }
+
+    #[test]
     fn validation_rps_per_rule_appended_as_strings() {
         let yaml = r#"
 validation:

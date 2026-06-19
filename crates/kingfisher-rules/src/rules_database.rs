@@ -571,6 +571,54 @@ rules:
         assert_eq!(matches, vec![(0, 15)]);
         Ok(())
     }
+
+    #[test]
+    fn cached_vectorscan_database_refreshes_when_rule_pattern_changes() -> Result<()> {
+        use vectorscan_rs::{BlockScanner, Scan};
+
+        fn rules_for(pattern: &str) -> Result<Vec<Rule>> {
+            let yaml = format!(
+                r#"
+rules:
+  - id: demo.secret
+    name: Demo Secret
+    pattern: "{pattern}"
+    confidence: low
+"#
+            );
+            let rules = Rules::from_paths_and_contents(
+                [(Path::new("demo.yml"), yaml.as_bytes())],
+                Confidence::Low,
+            )?;
+            Ok(rules.into_iter().map(Rule::new).collect())
+        }
+
+        fn scan_matches(db: &RulesDatabase, input: &[u8]) -> Result<Vec<(u32, u64)>> {
+            let mut scanner = BlockScanner::new(db.vectorscan_db())?;
+            let mut matches = Vec::new();
+            scanner.scan(input, |id, _from, to, _flags| {
+                matches.push((id, to));
+                Scan::Continue
+            })?;
+            Ok(matches)
+        }
+
+        let cache_dir =
+            env::temp_dir().join(format!("kingfisher-rule-cache-test-{}", uuid::Uuid::new_v4()));
+        let cache = RuleCacheConfig::new(&cache_dir);
+
+        let numeric_db = RulesDatabase::from_rules_with_cache(rules_for("demo_[0-9]{4}")?, &cache)?;
+        assert_eq!(scan_matches(&numeric_db, b"token demo_1234")?, vec![(0, 15)]);
+        assert_eq!(fs::read_dir(&cache_dir)?.count(), 1);
+
+        let alpha_db = RulesDatabase::from_rules_with_cache(rules_for("demo_[a-z]{4}")?, &cache)?;
+        assert_eq!(scan_matches(&alpha_db, b"token demo_1234")?, Vec::<(u32, u64)>::new());
+        assert_eq!(scan_matches(&alpha_db, b"token demo_abcd")?, vec![(0, 15)]);
+        assert_eq!(fs::read_dir(&cache_dir)?.count(), 2);
+
+        fs::remove_dir_all(cache_dir).ok();
+        Ok(())
+    }
 }
 #[cfg(test)]
 mod test_regex_cleaning {
