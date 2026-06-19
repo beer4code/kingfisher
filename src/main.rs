@@ -66,8 +66,8 @@ use kingfisher::{
             inputs::{ContentFilteringArgs, InputSpecifierArgs},
             output::{OutputArgs, ReportOutputFormat},
             rules::{
-                RuleSpecifierArgs, RulesCheckArgs, RulesCommand, RulesListArgs,
-                RulesListOutputFormat,
+                RuleCacheArgs, RuleSpecifierArgs, RulesCheckArgs, RulesCommand,
+                RulesCompileCacheArgs, RulesListArgs, RulesListOutputFormat,
             },
         },
         global::Command,
@@ -77,7 +77,7 @@ use kingfisher::{
     gitea, github, huggingface,
     reporter::{DetailsReporter, ScanAuditContext, styles::Styles},
     rule_loader::RuleLoader,
-    rules_database::RulesDatabase,
+    rules_database::{RuleCacheConfig, RulesDatabase},
     scanner::{load_and_record_rules, run_scan},
     update::{check_for_update_async, rewrite_argv_for_reexec},
     util::tokio_blocking_threads_limit,
@@ -483,6 +483,17 @@ fn apply_config(
             scan_args.rules.load_builtins = v;
         }
     }
+    if let Some(v) = cfg.rules.cache {
+        if config_wins(scan_matches, "rule_cache") && config_wins(scan_matches, "no_rule_cache") {
+            scan_args.rule_cache.rule_cache = v;
+            scan_args.rule_cache.no_rule_cache = !v;
+        }
+    }
+    if let Some(path) = &cfg.rules.cache_dir {
+        if config_wins(scan_matches, "rule_cache_dir") {
+            scan_args.rule_cache.rule_cache_dir = Some(path.clone());
+        }
+    }
 
     // ---------- validation -------------------------------------------------
     if let Some(t) = cfg.validation.timeout {
@@ -818,6 +829,15 @@ fn build_config_yaml(
     }
     if user_set(sub_matches, "load_builtins") {
         rules.load_builtins = Some(scan_args.rules.load_builtins);
+    }
+    if user_set(sub_matches, "rule_cache") {
+        rules.cache = Some(true);
+    }
+    if user_set(sub_matches, "no_rule_cache") {
+        rules.cache = Some(false);
+    }
+    if user_set(sub_matches, "rule_cache_dir") {
+        rules.cache_dir = scan_args.rule_cache.rule_cache_dir.clone();
     }
     cfg.rules = rules;
 
@@ -1561,6 +1581,9 @@ async fn async_main(args: CommandLineArgs, matches: clap::ArgMatches) -> Result<
                     RulesCommand::Check(check_args) => {
                         run_rules_check(&check_args)?;
                     }
+                    RulesCommand::CompileCache(cache_args) => {
+                        run_rules_compile_cache(&cache_args)?;
+                    }
                     RulesCommand::List(list_args) => {
                         run_rules_list(&list_args)?;
                     }
@@ -1602,6 +1625,7 @@ fn create_default_scan_args() -> cli::commands::scan::ScanArgs {
             rule: vec!["all".into()],
             load_builtins: true,
         },
+        rule_cache: RuleCacheArgs::default(),
         input_specifier_args: InputSpecifierArgs {
             path_inputs: Vec::new(),
             git_url: Vec::new(),
@@ -1745,6 +1769,24 @@ fn create_default_scan_args() -> cli::commands::scan::ScanArgs {
         config_webhook_overrides: Vec::new(),
     }
 }
+/// Run the rules compile-cache command
+pub fn run_rules_compile_cache(args: &RulesCompileCacheArgs) -> Result<()> {
+    let mut scan_args = create_default_scan_args();
+    scan_args.confidence = args.confidence;
+
+    let loader = RuleLoader::from_rule_specifiers(&args.rules);
+    let loaded = loader.load(&scan_args).context("Failed to load rules")?;
+    let resolved = loaded.resolve_enabled_rules().context("Failed to resolve rules")?;
+    let cache = RuleCacheConfig::from_dir_or_env(args.cache.rule_cache_dir.clone());
+    info!(cache_dir = %cache.cache_dir().display(), "Using Vectorscan rule cache");
+    let rules_db =
+        RulesDatabase::from_rules_with_cache(resolved.into_iter().cloned().collect(), &cache)
+            .context("Failed to compile rules with Vectorscan cache")?;
+
+    println!("Rule cache ready: {} rules in {}", rules_db.num_rules(), cache.cache_dir().display());
+    Ok(())
+}
+
 /// Run the rules check command
 pub fn run_rules_check(args: &RulesCheckArgs) -> Result<()> {
     let mut num_errors = 0;

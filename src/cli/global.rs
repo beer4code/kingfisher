@@ -120,7 +120,7 @@ pub static RAM_GB: LazyLock<Option<f64>> = LazyLock::new(|| {
 #[command(next_help_heading = "Global Options")]
 pub struct GlobalArgs {
     /// Enable verbose output (up to 3 times for more detail)
-    #[arg(global = true, long = "verbose", short = 'v', action = ArgAction::Count)]
+    #[arg(global = true, long = "verbose", alias = "debug", short = 'v', action = ArgAction::Count)]
     pub verbose: u8,
 
     /// Suppress non-error messages and disable progress bars

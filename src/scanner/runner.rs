@@ -28,7 +28,7 @@ use crate::{
     rule_loader::RuleLoader,
     rule_profiling::ConcurrentRuleProfiler,
     rules::rule::Validation,
-    rules_database::RulesDatabase,
+    rules_database::{RuleCacheConfig, RulesDatabase},
     safe_list,
     scanner::{
         AccessMapCollector, clone_or_update_git_repos_streaming, enumerate_azure_repos,
@@ -1465,7 +1465,14 @@ pub fn load_and_record_rules(
                 rule
             })
             .collect();
-        RulesDatabase::from_rules(rules).context("Failed to compile rules")?
+        if args.rule_cache.enabled() {
+            let cache = RuleCacheConfig::from_dir_or_env(args.rule_cache.rule_cache_dir.clone());
+            info!(cache_dir = %cache.cache_dir().display(), "Using Vectorscan rule cache");
+            RulesDatabase::from_rules_with_cache(rules, &cache)
+                .context("Failed to compile rules with Vectorscan cache")?
+        } else {
+            RulesDatabase::from_rules(rules).context("Failed to compile rules")?
+        }
     };
     init_progress.set_message("Recording rules...");
     datastore

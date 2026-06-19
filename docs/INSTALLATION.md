@@ -296,6 +296,15 @@ docker run --rm -v "$(pwd)":/src ghcr.io/mongodb/kingfisher:latest scan /src --s
 kingfisher scan . --staged --quiet --no-update-check
 ```
 
+For faster repeated hook runs, pre-warm the compiled rule cache:
+
+```bash
+kingfisher rules compile-cache
+kingfisher scan . --staged --quiet --no-update-check
+```
+
+Kingfisher caches compiled rules by default and uses a platform default cache directory when `--rule-cache-dir` is omitted. See [ADVANCED.md](ADVANCED.md#compiled-rule-cache) for cache locations, custom-rule behavior, and the `--no-rule-cache` opt-out.
+
 **Windows with PowerShell:**
 
 For Windows users preferring native PowerShell over Git Bash, create a `.husky/pre-commit.ps1` or add to your hook:

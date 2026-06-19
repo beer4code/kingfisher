@@ -12,7 +12,7 @@ use kingfisher::{
             gitlab::GitLabRepoType,
             inputs::{ContentFilteringArgs, InputSpecifierArgs},
             output::{OutputArgs, ReportOutputFormat},
-            rules::RuleSpecifierArgs,
+            rules::{RuleCacheArgs, RuleSpecifierArgs},
             scan::{ConfidenceLevel, ScanArgs},
         },
         global::{Mode, TlsMode},
@@ -134,6 +134,7 @@ async fn test_scan_postman_all() -> Result<()> {
             rule: vec!["all".into()],
             load_builtins: true,
         },
+        rule_cache: RuleCacheArgs::default(),
         input_specifier_args: InputSpecifierArgs {
             path_inputs: Vec::new(),
             git_url: Vec::new(),

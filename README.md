@@ -317,6 +317,17 @@ Kingfisher supports multiple installation methods:
 
 **For complete installation instructions and pre-commit hook setup, see [docs/INSTALLATION.md](docs/INSTALLATION.md).**
 
+### Faster Pre-commit and CI Runs
+
+Repeated hook and CI scans can reuse Kingfisher's compiled Vectorscan rule database:
+
+```bash
+kingfisher rules compile-cache
+kingfisher scan . --staged
+```
+
+Kingfisher caches compiled rules by default and uses a platform default cache directory unless `--rule-cache-dir` or `KF_RULE_CACHE_DIR` is set. Custom rules loaded with `--rules-path` are included in the cache key, so changing a rule automatically refreshes the cache entry. Use `--no-rule-cache` to opt out. See [Compiled Rule Cache](docs/ADVANCED.md#compiled-rule-cache) for details.
+
 ## Verifying Releases
 
 Every release ships [SLSA v1 build-provenance attestations](https://github.com/actions/attest-build-provenance) (Sigstore keyless OIDC) proving the artifact was built by our CI workflow at a known commit and hasn't been tampered with. Attestations are available via the GitHub attestation store or as the `multiple.intoto.jsonl` release asset.

@@ -1635,7 +1635,7 @@ mod tests {
             gitea::GiteaRepoType,
             github::{GitCloneMode, GitHistoryMode, GitHubRepoType},
             gitlab::GitLabRepoType,
-            rules::RuleSpecifierArgs,
+            rules::{RuleCacheArgs, RuleSpecifierArgs},
         },
         git_commit_metadata::CommitMetadata,
         location::{Location, OffsetSpan, SourcePoint, SourceSpan},
@@ -1750,6 +1750,7 @@ mod tests {
         ScanArgs {
             num_jobs: 1,
             rules: RuleSpecifierArgs::default(),
+            rule_cache: RuleCacheArgs::default(),
             input_specifier_args: InputSpecifierArgs {
                 path_inputs: Vec::new(),
                 git_url: Vec::new(),

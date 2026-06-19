@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::{ArgAction, Args, Subcommand, ValueEnum, ValueHint};
 use strum::Display;
 
-use crate::cli::commands::output::OutputArgs;
+use crate::cli::commands::{output::OutputArgs, scan::ConfidenceLevel};
 
 // -----------------------------------------------------------------------------
 // Rule Specifiers
@@ -28,6 +28,56 @@ pub struct RuleSpecifierArgs {
     pub load_builtins: bool,
 }
 
+#[derive(Args, Debug, Clone, Default)]
+pub struct RuleCacheArgs {
+    /// Cache the compiled Vectorscan rule database between runs (default)
+    #[arg(
+        global = true,
+        long = "rule-cache",
+        default_value_t = false,
+        conflicts_with = "no_rule_cache",
+        hide = true
+    )]
+    pub rule_cache: bool,
+
+    /// Disable the compiled Vectorscan rule database cache
+    #[arg(
+        global = true,
+        long = "no-rule-cache",
+        default_value_t = false,
+        conflicts_with = "rule_cache"
+    )]
+    pub no_rule_cache: bool,
+
+    /// Directory for the compiled rule cache
+    #[arg(
+        global = true,
+        long = "rule-cache-dir",
+        env = "KF_RULE_CACHE_DIR",
+        value_name = "PATH",
+        value_hint = ValueHint::DirPath
+    )]
+    pub rule_cache_dir: Option<PathBuf>,
+}
+
+impl RuleCacheArgs {
+    pub fn enabled(&self) -> bool {
+        !self.no_rule_cache
+    }
+}
+
+#[derive(Args, Debug, Clone, Default)]
+pub struct RuleCacheDirArgs {
+    /// Directory for the compiled rule cache
+    #[arg(
+        long = "rule-cache-dir",
+        env = "KF_RULE_CACHE_DIR",
+        value_name = "PATH",
+        value_hint = ValueHint::DirPath
+    )]
+    pub rule_cache_dir: Option<PathBuf>,
+}
+
 #[derive(Args, Debug)]
 pub struct RulesArgs {
     #[command(subcommand)]
@@ -38,6 +88,10 @@ pub struct RulesArgs {
 pub enum RulesCommand {
     /// Check rules for problems
     Check(RulesCheckArgs),
+
+    /// Compile and store the Vectorscan rule cache
+    #[command(name = "compile-cache")]
+    CompileCache(RulesCompileCacheArgs),
 
     /// List available rules
     List(RulesListArgs),
@@ -60,6 +114,19 @@ pub struct RulesListArgs {
 
     #[command(flatten)]
     pub output_args: OutputArgs<RulesListOutputFormat>,
+}
+
+#[derive(Args, Debug)]
+pub struct RulesCompileCacheArgs {
+    #[command(flatten)]
+    pub rules: RuleSpecifierArgs,
+
+    /// Minimum confidence level for rules included in the cache
+    #[arg(global = true, long, short = 'c', default_value = "medium")]
+    pub confidence: ConfidenceLevel,
+
+    #[command(flatten)]
+    pub cache: RuleCacheDirArgs,
 }
 
 // -----------------------------------------------------------------------------

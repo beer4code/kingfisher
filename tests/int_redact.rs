@@ -15,7 +15,7 @@ use kingfisher::{
             gitlab::GitLabRepoType,
             inputs::{ContentFilteringArgs, InputSpecifierArgs},
             output::{OutputArgs, ReportOutputFormat},
-            rules::RuleSpecifierArgs,
+            rules::{RuleCacheArgs, RuleSpecifierArgs},
             scan::{ConfidenceLevel, ScanArgs},
         },
         global::{GlobalArgs, Mode, TlsMode},
@@ -40,6 +40,7 @@ async fn test_redact_hashes_finding_values() -> Result<()> {
             rule: vec!["all".into()],
             load_builtins: true,
         },
+        rule_cache: RuleCacheArgs::default(),
         input_specifier_args: InputSpecifierArgs {
             path_inputs: vec![PathBuf::from("testdata/generic_secrets.py")],
             git_url: Vec::new(),

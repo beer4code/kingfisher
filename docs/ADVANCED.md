@@ -17,6 +17,7 @@ This guide covers advanced Kingfisher features for power users.
     - [Inline Ignore Directives](#inline-ignore-directives)
   - [Validation Tuning](#validation-tuning)
   - [Scanning in CI Pipelines](#scanning-in-ci-pipelines)
+    - [Compiled Rule Cache](#compiled-rule-cache)
   - [Custom Rules](#custom-rules)
     - [Scan with only custom rules](#scan-with-only-custom-rules)
     - [Add custom rules alongside built-ins](#add-custom-rules-alongside-built-ins)
@@ -294,6 +295,40 @@ kingfisher scan ./my-project \
   --exclude tests \
   -v
 ```
+
+### Compiled Rule Cache
+
+Kingfisher persists the compiled Vectorscan rule database by default so repeated short runs, such as pre-commit hooks and CI jobs, do not pay the full database compilation cost every time.
+
+If no cache directory is specified, Kingfisher uses a platform default:
+
+- Windows: `%LOCALAPPDATA%\Kingfisher\rule-cache`
+- macOS: `~/Library/Caches/kingfisher/rule-cache`
+- Linux/Unix: `$XDG_CACHE_HOME/kingfisher/rule-cache`, then `~/.cache/kingfisher/rule-cache`
+
+```bash
+kingfisher scan . --staged
+
+KF_RULE_CACHE_DIR=.kingfisher-cache kingfisher scan . --staged
+
+kingfisher scan . --staged --rule-cache-dir .kingfisher-cache
+```
+
+Use `--no-rule-cache` to disable the cache for a scan:
+
+```bash
+kingfisher scan . --staged --no-rule-cache
+```
+
+To pre-warm the cache before the first scan, run:
+
+```bash
+kingfisher rules compile-cache
+```
+
+Pass `--debug` or `-v` to see which cache directory and cache entry Kingfisher is using, whether it was a hit or miss, and when a new entry is written.
+
+The cache key includes the resolved rule order, rule patterns, platform, cache format, and Vectorscan runtime version. This works with built-in rules and custom rules loaded through `--rules-path`. When built-in or custom rule patterns change, Kingfisher uses a new cache entry automatically. If a cache entry is missing, corrupt, or incompatible with the current platform, Kingfisher falls back to compiling normally and refreshes the cache.
 
 ## Custom Rules
 

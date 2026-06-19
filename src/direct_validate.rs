@@ -956,7 +956,7 @@ pub(crate) fn create_minimal_scan_args() -> crate::cli::commands::scan::ScanArgs
         gitlab::GitLabRepoType,
         inputs::{ContentFilteringArgs, InputSpecifierArgs},
         output::{OutputArgs, ReportOutputFormat},
-        rules::RuleSpecifierArgs,
+        rules::{RuleCacheArgs, RuleSpecifierArgs},
         scan::{ConfidenceLevel, ScanArgs},
     };
     use url::Url;
@@ -968,6 +968,7 @@ pub(crate) fn create_minimal_scan_args() -> crate::cli::commands::scan::ScanArgs
             rule: vec!["all".into()],
             load_builtins: true,
         },
+        rule_cache: RuleCacheArgs::default(),
         input_specifier_args: InputSpecifierArgs {
             path_inputs: Vec::new(),
             git_url: Vec::new(),
