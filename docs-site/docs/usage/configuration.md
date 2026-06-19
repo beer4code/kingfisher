@@ -209,6 +209,8 @@ rules:
   paths:                        # list, additive                 (--rules-path)
     - ./custom-rules/
   load_builtins: true           # bool                           (--load-builtins)
+  cache: true                   # bool, default true             (--no-rule-cache disables)
+  cache_dir: ./.kingfisher-cache # optional path                 (--rule-cache-dir, KF_RULE_CACHE_DIR)
 
 validation:
   timeout: 10                   # seconds, 1..=60                (--validation-timeout)

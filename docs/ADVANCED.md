@@ -326,7 +326,7 @@ To pre-warm the cache before the first scan, run:
 kingfisher rules compile-cache
 ```
 
-Pass `--debug` or `-v` to see which cache directory and cache entry Kingfisher is using, whether it was a hit or miss, and when a new entry is written.
+By default, Kingfisher logs the cache directory in use. Pass `--debug` or `-v` to see cache hit/miss details and when new entries are written.
 
 The cache key includes the resolved rule order, rule patterns, platform, cache format, and Vectorscan runtime version. This works with built-in rules and custom rules loaded through `--rules-path`. When built-in or custom rule patterns change, Kingfisher uses a new cache entry automatically. If a cache entry is missing, corrupt, or incompatible with the current platform, Kingfisher falls back to compiling normally and refreshes the cache.
 

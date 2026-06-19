@@ -1,6 +1,6 @@
 use std::{
     env, fs,
-    io::Write,
+    io::{ErrorKind, Write},
     path::{Path, PathBuf},
     sync::Arc,
     time::Instant,
@@ -416,8 +416,10 @@ fn load_cached_vectorscan_db_inner(
     let mut len_bytes = [0_u8; 4];
     len_bytes.copy_from_slice(&rest[..4]);
     let header_len = u32::from_le_bytes(len_bytes) as usize;
-    let header_start = 4;
-    let header_end = header_start + header_len;
+    let header_start = 4_usize;
+    let Some(header_end) = header_start.checked_add(header_len) else {
+        bail!("cache header length overflow");
+    };
     if rest.len() < header_end {
         bail!("truncated cache header");
     }
@@ -459,21 +461,53 @@ fn store_cached_vectorscan_db_inner(
     let db_bytes = vsdb.serialize().context("serialize Vectorscan database")?;
 
     let tmp_path = parent.join(format!(
-        ".{}.{}.tmp",
+        ".{}.{}.{}.tmp",
         path.file_name().and_then(|name| name.to_str()).unwrap_or("rule-cache"),
-        std::process::id()
+        std::process::id(),
+        uuid::Uuid::new_v4()
     ));
-    let mut file =
-        fs::File::create(&tmp_path).with_context(|| format!("create {}", tmp_path.display()))?;
-    file.write_all(CACHE_MAGIC)?;
-    file.write_all(&(header_bytes.len() as u32).to_le_bytes())?;
-    file.write_all(&header_bytes)?;
-    file.write_all(&db_bytes)?;
-    file.sync_all().ok();
-    drop(file);
-    fs::rename(&tmp_path, path)
-        .with_context(|| format!("rename {} to {}", tmp_path.display(), path.display()))?;
-    Ok(())
+    let result = (|| -> Result<()> {
+        let mut file = fs::File::create(&tmp_path)
+            .with_context(|| format!("create {}", tmp_path.display()))?;
+        file.write_all(CACHE_MAGIC)?;
+        file.write_all(&(header_bytes.len() as u32).to_le_bytes())?;
+        file.write_all(&header_bytes)?;
+        file.write_all(&db_bytes)?;
+        file.sync_all().with_context(|| format!("sync {}", tmp_path.display()))?;
+        drop(file);
+        replace_cache_file(&tmp_path, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        fs::remove_file(&tmp_path).ok();
+    }
+    result
+}
+
+fn replace_cache_file(tmp_path: &Path, path: &Path) -> Result<()> {
+    match fs::rename(tmp_path, path) {
+        Ok(()) => Ok(()),
+        Err(_err) if cfg!(windows) && path.exists() => {
+            match fs::remove_file(path) {
+                Ok(()) => {}
+                Err(remove_err) if remove_err.kind() == ErrorKind::NotFound => {}
+                Err(remove_err) => {
+                    return Err(remove_err)
+                        .with_context(|| format!("remove existing {}", path.display()));
+                }
+            }
+            fs::rename(tmp_path, path).with_context(|| {
+                format!(
+                    "rename {} to {} after removing existing cache entry",
+                    tmp_path.display(),
+                    path.display()
+                )
+            })
+        }
+        Err(err) => {
+            Err(err).with_context(|| format!("rename {} to {}", tmp_path.display(), path.display()))
+        }
+    }
 }
 
 fn has_self_identifying_shape(normalized_pattern: &str) -> bool {
@@ -567,6 +601,48 @@ rules:
             Scan::Continue
         })?;
 
+        fs::remove_dir_all(cache_dir).ok();
+        assert_eq!(matches, vec![(0, 15)]);
+        Ok(())
+    }
+
+    #[test]
+    fn cached_vectorscan_database_refreshes_corrupt_entry() -> Result<()> {
+        use vectorscan_rs::{BlockScanner, Scan};
+
+        let yaml = br#"
+rules:
+  - id: demo.secret
+    name: Demo Secret
+    pattern: "demo_[0-9]{4}"
+    confidence: low
+"#;
+        let rules = Rules::from_paths_and_contents(
+            [(Path::new("demo.yml"), yaml.as_slice())],
+            Confidence::Low,
+        )?;
+        let rule_vec: Vec<Rule> = rules.into_iter().map(Rule::new).collect();
+        let cache_dir =
+            env::temp_dir().join(format!("kingfisher-rule-cache-test-{}", uuid::Uuid::new_v4()));
+        let cache = RuleCacheConfig::new(&cache_dir);
+
+        RulesDatabase::from_rules_with_cache(rule_vec.clone(), &cache)?;
+        let cache_path =
+            fs::read_dir(&cache_dir)?.next().expect("cache entry should exist")?.path();
+        let mut corrupt = Vec::new();
+        corrupt.extend_from_slice(CACHE_MAGIC);
+        corrupt.extend_from_slice(&u32::MAX.to_le_bytes());
+        fs::write(&cache_path, corrupt)?;
+
+        let refreshed_db = RulesDatabase::from_rules_with_cache(rule_vec, &cache)?;
+        let mut scanner = BlockScanner::new(refreshed_db.vectorscan_db())?;
+        let mut matches = Vec::new();
+        scanner.scan(b"token demo_1234", |id, _from, to, _flags| {
+            matches.push((id, to));
+            Scan::Continue
+        })?;
+
+        assert_eq!(fs::read_dir(&cache_dir)?.count(), 1);
         fs::remove_dir_all(cache_dir).ok();
         assert_eq!(matches, vec![(0, 15)]);
         Ok(())

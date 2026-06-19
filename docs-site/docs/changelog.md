@@ -7,6 +7,11 @@ description: "Kingfisher release history: new features, rules, bug fixes, and im
 
 All notable changes to this project will be documented in this file.
 
+## [v1.104.0]
+- Compiled Vectorscan rule caching is now enabled by default, with `--no-rule-cache` available for opt-out. Kingfisher stores the cache in the platform default cache directory unless `--rule-cache-dir` or `KF_RULE_CACHE_DIR` is set.
+- Cache entries are keyed so rule changes, including custom rule paths, refresh automatically when the underlying rules change.
+- Added INFO logging for the cache location in use, plus `kingfisher rules compile-cache` for prebuilding the cache explicitly.
+
 ## [v1.103.0]
 - Git clone and remote-update operations now enforce wall-clock timeouts (20 min and 10 min defaults respectively) so a single unresponsive remote cannot park a clone worker indefinitely. Configurable via `KF_GIT_CLONE_TIMEOUT_SECS` and `KF_GIT_UPDATE_TIMEOUT_SECS`.
 - Deadline enforcement is now propagated through repository object indexing, commit-graph traversal, tree traversal, and blob metadata assembly, replacing the previous 100 ms polling loop with cooperative cancellation at each phase boundary.
