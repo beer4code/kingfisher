@@ -3,8 +3,8 @@
 All notable changes to this project will be documented in this file.
 
 ## [v1.104.0]
-- Compiled Vectorscan rule caching is now enabled by default, with `--no-rule-cache` available for opt-out. Kingfisher stores the cache in the platform default cache directory unless `--rule-cache-dir` or `KF_RULE_CACHE_DIR` is set.
-- Cache entries are keyed so rule changes, including custom rule paths, refresh automatically when the underlying rules change.
+- Compiled Vectorscan rule caching is now enabled by default, with `--no-rule-cache` available for opt-out and `--rule-cache-dir` / `KF_RULE_CACHE_DIR` for custom or Docker-mounted cache locations.
+- Cache entries are keyed so built-in and external `--rules-path` rule changes refresh automatically; stale, corrupt, unreadable, or unwritable cache entries fall back to normal compilation without failing the scan.
 - Added INFO logging for the cache location in use, plus `kingfisher rules compile-cache` for prebuilding the cache explicitly.
 
 ## [v1.103.0]

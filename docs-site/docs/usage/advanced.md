@@ -317,6 +317,16 @@ KF_RULE_CACHE_DIR=.kingfisher-cache kingfisher scan . --staged
 kingfisher scan . --staged --rule-cache-dir .kingfisher-cache
 ```
 
+For Docker runs, the default cache directory lives inside the container and is lost when the container is removed. Mount a host directory and set `KF_RULE_CACHE_DIR` so repeated `docker run --rm` scans reuse the cache:
+
+```bash
+docker run --rm \
+  -v "$PWD":/src \
+  -v "$HOME/.cache/kingfisher-rule-cache":/kf-cache \
+  -e KF_RULE_CACHE_DIR=/kf-cache \
+  ghcr.io/mongodb/kingfisher:latest scan /src --staged
+```
+
 Use `--no-rule-cache` to disable the cache for a scan:
 
 ```bash

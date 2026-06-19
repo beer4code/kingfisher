@@ -366,6 +366,14 @@ docker run --rm \
   -v "$PWD":/src \
   ghcr.io/mongodb/kingfisher:latest scan /src
 
+# Reuse the compiled rule cache across disposable containers:
+# mount a host cache directory and set KF_RULE_CACHE_DIR.
+docker run --rm \
+  -v "$PWD":/src \
+  -v "$HOME/.cache/kingfisher-rule-cache":/kf-cache \
+  -e KF_RULE_CACHE_DIR=/kf-cache \
+  ghcr.io/mongodb/kingfisher:latest scan /src
+
 
 # Scan while providing a GitHub token
 # Mounts your working dir at /proj and passes in the token:
