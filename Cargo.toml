@@ -9,7 +9,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-rust-version = "1.94"
+rust-version = "1.96"
 license = "Apache-2.0"
 authors = ["Mick Grove <mick.grove@mongodb.com>"]
 homepage = "https://github.com/mongodb/kingfisher"
@@ -21,7 +21,7 @@ anyhow = "1.0"
 thiserror = "2.0.18"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-schemars = "0.8"
+schemars = "1.2"
 regex = "1.12"
 bstr = { version = "1.12", features = ["serde"] }
 smallvec = { version = "1", features = ["const_generics", "const_new", "union"] }
@@ -94,11 +94,11 @@ clap = { version = "4.6", features = [
 anyhow = "1.0"
 bstr = { version = "1.12", features = ["serde"] }
 fixedbitset = "0.5"
-gix = { version = "0.83", features = ["max-performance-safe", "serde", "blocking-network-client"] }
+gix = { version = "0.84", features = ["max-performance-safe", "serde", "blocking-network-client"] }
 ignore = "0.4"
 petgraph = "0.8"
 roaring = "0.11.4"
-schemars = "0.8"
+schemars = "1.2"
 serde = { version = "1.0", features = ["derive", "rc"] }
 smallvec = { version = "1", features = [
     "const_generics",
@@ -112,22 +112,28 @@ hex = "0.4.3"
 vectorscan-rs = "0.0.6"
 regex = "1.12.4"
 serde_json = "1.0.150"
-toon-format = { version = "0.4.6", default-features = false }
+toon-format = { version = "0.5.0", default-features = false }
 url = "2.5.8"
 include_dir = { version = "0.7", features = ["glob"] }
 strum = { version = "0.28", features = ["derive"] }
-sysinfo = "0.38.4"
+sysinfo = "0.39.3"
 webbrowser = "1.2.1"
-reqwest = { version = "0.12", default-features = false, features = [
+reqwest = { version = "0.13", default-features = false, features = [
     "json",
     "gzip",
     "brotli",
-    "deflate", 
+    "deflate",
+    "form",
+    "query",
     "stream",
-    "rustls-tls",
-    "rustls-tls-native-roots",
+    "rustls",
     "blocking",
     "multipart",
+] }
+# gouqi 0.20 exposes reqwest 0.12's Client in its public async constructor.
+reqwest_0_12 = { package = "reqwest", version = "0.12.28", default-features = false, features = [
+    "json",
+    "rustls-tls",
 ] }
 axum = { version = "0.8", default-features = false, features = ["tokio", "http1"] }
 
@@ -138,7 +144,7 @@ tokio = { version = "1.52.3", features = ["full"] }
 base64 = "0.22.1"
 crossbeam-channel = "0.5.15"
 indenter = "0.3.4"
-serde-sarif = "0.4"
+serde-sarif = "0.8"
 console = "0.16.3"
 tempfile = "3.27.0"
 http = "1.4.2"
@@ -152,7 +158,7 @@ tokio-postgres = { version = "0.7", default-features = false, features = ["runti
 # Hickory 0.26 DNS-resolver fix before it is available in a crates.io release.
 # TODO: switch back to a crates.io mongodb release once it includes that fix.
 mongodb = { git = "https://github.com/mongodb/mongo-rust-driver", rev = "bdddefc50c4794d51d10b944320d42c6eb216b04", default-features = false, features = ["rustls-tls", "aws-auth", "compat-3-0-0", "dns-resolver"] }
-mysql_async = { version = "0.36.2", default-features = false, features = ["default-rustls"] }
+mysql_async = { version = "0.37.0", default-features = false, features = ["default-rustls"] }
 aws-config = { version = "1.8.18", default-features = false, features = ["default-https-client", "rt-tokio", "credentials-process", "sso"] }
 aws-credential-types = "1.2.14"
 aws-sdk-sts = { version = "1.107.0", default-features = false, features = ["default-https-client", "rt-tokio"] }
@@ -174,7 +180,7 @@ tar = "0.4.46"
 lzma-rs = "0.3.0"
 asar = "0.3.0"
 cfb = "0.14"
-rusqlite = { version = "0.39", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 blake3 = "1.8.5"
 memchr = "2.8"
 memmap2 = "0.9.10"
@@ -189,7 +195,7 @@ humantime = "2.3.0"
 path-dedot = "3.1.1"
 quick-xml = { version = "0.40.1", features = ["serde", "serialize"] }
 rustls = "0.23.40"
-tokio-postgres-rustls = "0.13.0"
+tokio-postgres-rustls = "0.14.0"
 rustls-native-certs = "0.8.4"
 color-backtrace = "0.7.2"
 mimalloc = { version = "0.1.52", features = ["override"] }
@@ -203,7 +209,7 @@ semver = "1.0.28"
 globset = "0.4.18"
 ipnet = "2.12.0"
 gouqi = { version = "0.20.0", features = ["async"] }
-oci-client = { version = "0.16", default-features = false, features = ["rustls-tls"] }
+oci-client = { version = "0.17", default-features = false, features = ["rustls-tls"] }
 walkdir = "2.5.0"
 aws-sdk-s3 = { version = "1.137.0", default-features = false, features = ["default-https-client", "rt-tokio"] }
 aws-sdk-iam = { version = "1.113.0", default-features = false, features = ["default-https-client", "rt-tokio"] }
@@ -231,7 +237,7 @@ wait-timeout = "0.2"
 
 
 [dependencies.tikv-jemallocator]
-version = "0.6"
+version = "0.7"
 optional = true
 
 [target.'cfg(unix)'.dependencies]

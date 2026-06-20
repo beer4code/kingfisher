@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use gouqi::{Credentials, SearchOptions, r#async::Jira};
-use reqwest::Client;
+use reqwest_0_12::Client;
 use std::path::PathBuf;
 use url::Url;
 

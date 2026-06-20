@@ -39,10 +39,10 @@ fn uri_targets_localhost(uri: &str) -> bool {
             host = &host[1..host.len() - 1];
         }
 
-        if let Some(idx) = host.rfind(':') {
-            if host[idx + 1..].chars().all(|c| c.is_ascii_digit()) {
-                host = &host[..idx];
-            }
+        if let Some(idx) = host.rfind(':')
+            && host[idx + 1..].chars().all(|c| c.is_ascii_digit())
+        {
+            host = &host[..idx];
         }
 
         if is_local_host(host) {

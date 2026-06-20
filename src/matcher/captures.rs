@@ -1,12 +1,10 @@
 use bstr::BString;
 use regex::bytes::Regex;
-use schemars::{
-    JsonSchema,
-    r#gen::SchemaGenerator,
-    schema::{ArrayValidation, InstanceType, Schema},
-};
+use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use smallvec::SmallVec;
+use std::borrow::Cow;
 
 use crate::{snippet::Base64BString, util::intern};
 
@@ -26,20 +24,15 @@ impl Group {
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Groups(pub SmallVec<[Group; 1]>);
 impl JsonSchema for Groups {
-    fn schema_name() -> String {
-        "Groups".to_string()
+    fn schema_name() -> Cow<'static, str> {
+        "Groups".into()
     }
 
-    fn json_schema(r#gen: &mut SchemaGenerator) -> Schema {
-        let group_schema = r#gen.subschema_for::<Group>();
-        Schema::Object(schemars::schema::SchemaObject {
-            instance_type: Some(InstanceType::Array.into()),
-            array: Some(Box::new(ArrayValidation {
-                items: Some(group_schema.into()),
-                ..Default::default()
-            })),
-            ..Default::default()
-        })
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        let mut schema = Schema::default();
+        schema.insert("type".to_owned(), json!("array"));
+        schema.insert("items".to_owned(), generator.subschema_for::<Group>().to_value());
+        schema
     }
 }
 
