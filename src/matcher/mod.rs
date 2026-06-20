@@ -172,7 +172,6 @@ impl<'a> Matcher<'a> {
     /// If `global_stats` is provided, it will be updated with the local stats
     /// from this `Matcher` when it is dropped.
     #[allow(clippy::too_many_arguments)]
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         rules_db: &'a RulesDatabase,
         scanner_pool: Arc<ScannerPool>,
@@ -240,7 +239,6 @@ impl<'a> Matcher<'a> {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     #[allow(clippy::too_many_arguments)]
     fn process_raw_matches<'b>(
         &self,

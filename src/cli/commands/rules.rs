@@ -62,7 +62,7 @@ pub struct RuleCacheArgs {
 
 impl RuleCacheArgs {
     pub fn enabled(&self) -> bool {
-        !self.no_rule_cache
+        self.rule_cache || !self.no_rule_cache
     }
 }
 
