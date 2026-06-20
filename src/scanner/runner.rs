@@ -1498,6 +1498,6 @@ pub fn load_and_record_rules(
         }
     };
     init_progress.set_message("Recording rules...");
-    datastore.lock().unwrap().record_rules(rules_db.rules().to_vec().as_slice());
+    datastore.lock().unwrap().record_rules(rules_db.rules());
     Ok(rules_db)
 }
