@@ -386,7 +386,7 @@ async fn execute_revocation_step(
     step_number: usize,
 ) -> Result<(reqwest::StatusCode, reqwest::header::HeaderMap, String)> {
     let default_step_name = format!("step_{}", step_number);
-    let step_name = step.name.as_ref().map(|s| s.as_str()).unwrap_or(&default_step_name);
+    let step_name = step.name.as_deref().unwrap_or(&default_step_name);
 
     debug!("Executing revocation step {}: {}", step_number, step_name);
 

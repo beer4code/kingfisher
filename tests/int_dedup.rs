@@ -245,8 +245,7 @@ rules:
         false,
     ))?;
 
-    let x = Ok(datastore.lock().unwrap().get_matches().len());
-    x
+    Ok(datastore.lock().unwrap().get_matches().len())
 }
 
 #[test]

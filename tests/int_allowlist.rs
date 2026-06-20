@@ -177,7 +177,7 @@ fn run_skiplist(skip_regex: Vec<String>, skip_skipword: Vec<String>) -> Result<u
         view_report: false,
         baseline_file: None,
         manage_baseline: false,
-        skip_regex: skip_regex,
+        skip_regex,
         skip_word: skip_skipword,
         skip_aws_account: Vec::new(),
         skip_aws_account_file: None,
@@ -235,8 +235,7 @@ fn run_skiplist(skip_regex: Vec<String>, skip_skipword: Vec<String>) -> Result<u
         false,
     ))?;
 
-    let x = Ok(datastore.lock().unwrap().get_matches().len());
-    x
+    Ok(datastore.lock().unwrap().get_matches().len())
 }
 
 #[test]

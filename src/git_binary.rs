@@ -290,11 +290,8 @@ impl Git {
             (bitbucket_username.clone(), bitbucket_basic_password.clone())
         {
             Some((username, password))
-        } else if let Some(token) = bitbucket_token.clone() {
-            // Allow token-only authentication (common for x-token-auth URLs).
-            Some(("x-token-auth".to_string(), token))
         } else {
-            None
+            bitbucket_token.clone().map(|token| ("x-token-auth".to_string(), token))
         };
         let has_bitbucket_username = bitbucket_username.is_some();
         let has_bitbucket_password = bitbucket_app_password.is_some()
@@ -506,23 +503,23 @@ impl Git {
     }
 
     fn repo_arg_for_clone(&self, repo_url: &GitUrl) -> String {
-        if let Some((username, password)) = &self.bitbucket_basic_auth {
-            if let Ok(mut url) = Url::parse(repo_url.as_str()) {
-                let is_bitbucket = url
-                    .host_str()
-                    .map(|host| host.eq_ignore_ascii_case("bitbucket.org"))
-                    .unwrap_or(false);
-                // Embed credentials only on HTTPS bitbucket.org remotes. The
-                // scoped credential helper is HTTPS-only for the same reason:
-                // putting a token in a plaintext http:// URL would send it over
-                // the wire in the clear.
-                if url.scheme() == "https"
-                    && is_bitbucket
-                    && url.set_username(username).is_ok()
-                    && url.set_password(Some(password)).is_ok()
-                {
-                    return url.into();
-                }
+        if let Some((username, password)) = &self.bitbucket_basic_auth
+            && let Ok(mut url) = Url::parse(repo_url.as_str())
+        {
+            let is_bitbucket = url
+                .host_str()
+                .map(|host| host.eq_ignore_ascii_case("bitbucket.org"))
+                .unwrap_or(false);
+            // Embed credentials only on HTTPS bitbucket.org remotes. The
+            // scoped credential helper is HTTPS-only for the same reason:
+            // putting a token in a plaintext http:// URL would send it over
+            // the wire in the clear.
+            if url.scheme() == "https"
+                && is_bitbucket
+                && url.set_username(username).is_ok()
+                && url.set_password(Some(password)).is_ok()
+            {
+                return url.into();
             }
         }
 
@@ -561,14 +558,20 @@ impl CloneMode {
 
 #[cfg(test)]
 mod tests {
+    use std::net::ToSocketAddrs;
+
     use tempfile::TempDir;
 
     use super::*;
 
+    fn github_is_reachable() -> bool {
+        ("github.com", 443).to_socket_addrs().is_ok()
+    }
+
     #[test]
     fn test_git_new() {
         temp_env::with_vars(
-            &[
+            [
                 ("KF_GITHUB_TOKEN", None::<&str>),
                 ("KF_BITBUCKET_OAUTH_TOKEN", None::<&str>),
                 ("KF_BITBUCKET_ACCESS_TOKEN", None::<&str>),
@@ -605,7 +608,7 @@ mod tests {
     #[test]
     fn test_git_new_bitbucket_basic_auth() {
         temp_env::with_vars(
-            &[
+            [
                 ("KF_BITBUCKET_USERNAME", Some("user")),
                 ("KF_BITBUCKET_APP_PASSWORD", Some("password")),
             ],
@@ -628,7 +631,7 @@ mod tests {
                 .unwrap();
 
         temp_env::with_vars(
-            &[
+            [
                 ("KF_BITBUCKET_USERNAME", Some("user")),
                 ("KF_BITBUCKET_APP_PASSWORD", Some("secret")),
             ],
@@ -648,7 +651,7 @@ mod tests {
             GitUrl::try_from(url::Url::parse("https://bitbucket.org/workspace/demo.git").unwrap())
                 .unwrap();
 
-        temp_env::with_vars(&[("KF_BITBUCKET_OAUTH_TOKEN", Some("token123"))], || {
+        temp_env::with_vars([("KF_BITBUCKET_OAUTH_TOKEN", Some("token123"))], || {
             let git = Git::new(false);
             assert_eq!(
                 git.repo_arg_for_clone(&url),
@@ -663,7 +666,7 @@ mod tests {
             GitUrl::try_from(url::Url::parse("https://bitbucket.org/workspace/demo.git").unwrap())
                 .unwrap();
 
-        temp_env::with_vars(&[("KF_BITBUCKET_TOKEN", Some("token123"))], || {
+        temp_env::with_vars([("KF_BITBUCKET_TOKEN", Some("token123"))], || {
             let git = Git::new(false);
             assert_eq!(
                 git.repo_arg_for_clone(&url),
@@ -681,7 +684,7 @@ mod tests {
             GitUrl::try_from(url::Url::parse("http://bitbucket.org/workspace/demo.git").unwrap())
                 .unwrap();
 
-        temp_env::with_vars(&[("KF_BITBUCKET_OAUTH_TOKEN", Some("token123"))], || {
+        temp_env::with_vars([("KF_BITBUCKET_OAUTH_TOKEN", Some("token123"))], || {
             let git = Git::new(false);
             assert_eq!(git.repo_arg_for_clone(&url), url.as_str());
         });
@@ -695,7 +698,7 @@ mod tests {
         .unwrap();
 
         temp_env::with_vars(
-            &[
+            [
                 ("KF_BITBUCKET_USERNAME", Some("user")),
                 ("KF_BITBUCKET_APP_PASSWORD", Some("secret")),
             ],
@@ -743,7 +746,7 @@ mod tests {
         let token = format!("  {trimmed_token}  \n");
 
         temp_env::with_vars(
-            &[("KF_BITBUCKET_USERNAME", Some("  user\n")), ("KF_BITBUCKET_TOKEN", Some(&token))],
+            [("KF_BITBUCKET_USERNAME", Some("  user\n")), ("KF_BITBUCKET_TOKEN", Some(&token))],
             || {
                 let git = Git::new(false);
 
@@ -773,6 +776,9 @@ mod tests {
 
     #[test]
     fn test_create_fresh_clone() -> Result<(), GitError> {
+        if !github_is_reachable() {
+            return Ok(());
+        }
         let temp_dir = TempDir::new()?;
         let git = Git::default();
         let url = GitUrl::try_from(
@@ -786,6 +792,9 @@ mod tests {
 
     #[test]
     fn test_update_clone() -> Result<(), GitError> {
+        if !github_is_reachable() {
+            return Ok(());
+        }
         let temp_dir = TempDir::new()?;
         let git = Git::default();
         let url = GitUrl::try_from(

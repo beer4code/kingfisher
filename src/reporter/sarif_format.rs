@@ -83,7 +83,7 @@ impl DetailsReporter {
             .filter_map(|rule| {
                 if finding_rule_ids.contains(&rule.name) {
                     let help = sarif::MultiformatMessageString::builder()
-                        .text(&rule.references.join("\n"))
+                        .text(rule.references.join("\n"))
                         .build();
                     let description =
                         sarif::MultiformatMessageString::builder().text(&rule.name).build();

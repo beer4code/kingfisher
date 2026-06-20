@@ -26,17 +26,13 @@ pub mod teams;
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "lowercase")]
 #[clap(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum AlertOn {
     /// Only post when at least one finding is reported.
+    #[default]
     Findings,
     /// Always post, even on a clean run.
     Always,
-}
-
-impl Default for AlertOn {
-    fn default() -> Self {
-        AlertOn::Findings
-    }
 }
 
 /// How much per-finding detail to include in alert payloads.

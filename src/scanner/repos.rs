@@ -889,6 +889,7 @@ pub async fn fetch_teams_messages(
 /// as soon as each one is fetched, rather than collecting all results before
 /// returning. This lets the scan loop start consuming artifact dirs while
 /// remote fetches for other repos are still in flight.
+#[allow(clippy::too_many_arguments)]
 pub async fn fetch_git_host_artifacts(
     repo_urls: &[GitUrl],
     bitbucket_api_url: &Url,

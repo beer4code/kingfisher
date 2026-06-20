@@ -55,6 +55,7 @@ use crate::{
 
 type OwnedBlob = Blob<'static>;
 
+#[allow(clippy::too_many_arguments)]
 pub fn enumerate_filesystem_inputs(
     args: &scan::ScanArgs,
     datastore: Arc<Mutex<findings_store::FindingsStore>>,
@@ -111,7 +112,7 @@ pub fn enumerate_filesystem_inputs(
         ProgressBar::hidden()
     };
     let _input_enumerator = || -> Result<FilesystemEnumerator> {
-        let mut ie = FilesystemEnumerator::new(input_roots, &args)?;
+        let mut ie = FilesystemEnumerator::new(input_roots, args)?;
         ie.threads(args.num_jobs);
         ie.max_filesize(args.content_filtering_args.max_file_size_bytes());
         if args.input_specifier_args.git_history == GitHistoryMode::None {
@@ -172,10 +173,10 @@ pub fn enumerate_filesystem_inputs(
     let scanner_pool = Arc::new(ScannerPool::new(Arc::new(rules_db.vectorscan_db().clone())));
 
     let matcher = Matcher::new(
-        &rules_db,
+        rules_db,
         scanner_pool.clone(),
         &seen_blobs,
-        Some(&matcher_stats),
+        Some(matcher_stats),
         enable_profiling,
         if enable_profiling { Some(shared_profiler) } else { None },
         &args.extra_ignore_comments,
@@ -217,7 +218,7 @@ pub fn enumerate_filesystem_inputs(
                 // origins, so archive/binary filtering stays consistent across input modes.
                 let is_archive =
                     origin.first().blob_path().map(is_compressed_file).unwrap_or(false);
-                let is_binary = is_binary(&blob.bytes());
+                let is_binary = is_binary(blob.bytes());
                 let should_skip = if is_archive {
                     // For archives: skip only if --no_extract_archives is true
                     args.content_filtering_args.no_extract_archives
@@ -293,7 +294,7 @@ fn make_fs_enumerator(
     if input_roots.is_empty() {
         Ok(None)
     } else {
-        let mut ie = FilesystemEnumerator::new(&input_roots, &args)?;
+        let mut ie = FilesystemEnumerator::new(&input_roots, args)?;
         ie.threads(args.num_jobs);
         ie.max_filesize(args.content_filtering_args.max_file_size_bytes());
         if args.input_specifier_args.git_history == GitHistoryMode::None {
@@ -532,6 +533,7 @@ impl FileResult {
 /// Returns `Err` only on infrastructure failures (failed to write temp
 /// file, etc.); decompression errors return `Ok(None)` so the caller can
 /// still scan the raw blob.
+#[allow(clippy::type_complexity)]
 fn try_extract_git_blob_archive(
     blob_path: &str,
     data: &[u8],
@@ -996,6 +998,7 @@ impl ParallelBlobIterator for EnumeratorFileResult {
         Ok(Some(EnumeratorFileIter { inner: self, reader, _marker: PhantomData }))
     }
 }
+#[allow(clippy::large_enum_variant)]
 enum FoundInputIter<'a> {
     File(FileResultIter<'a>),
     GitRepo(GitRepoResultIter<'a>),
@@ -1320,15 +1323,15 @@ fn enumerate_git_diff_repo(
 
             let relative_path_str = String::from_utf8_lossy(location.as_ref()).into_owned();
             let relative_path = Path::new(&relative_path_str);
-            if let Some(gs) = &exclude_globset {
-                if gs.is_match(relative_path) || gs.is_match(&path.join(relative_path)) {
-                    debug!(
-                        "Skipping {} due to --exclude while diffing {}",
-                        relative_path.display(),
-                        path.display()
-                    );
-                    continue;
-                }
+            if let Some(gs) = &exclude_globset
+                && (gs.is_match(relative_path) || gs.is_match(path.join(relative_path)))
+            {
+                debug!(
+                    "Skipping {} due to --exclude while diffing {}",
+                    relative_path.display(),
+                    path.display()
+                );
+                continue;
             }
 
             let appearance =

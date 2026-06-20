@@ -13,7 +13,7 @@ use dashmap::DashSet;
 use path_dedot::ParseDot;
 use rand::RngExt;
 // Generate a random salt once and use it for the entire application runtime
-static APP_SALT: LazyLock<String> = LazyLock::new(|| generate_salt());
+static APP_SALT: LazyLock<String> = LazyLock::new(generate_salt);
 static REDACTION_ENABLED: AtomicBool = AtomicBool::new(false);
 
 const MIN_TOKIO_BLOCKING_THREADS: usize = 32;
@@ -178,7 +178,7 @@ pub fn get_reader_for_file_or_stdin<P: AsRef<Path>>(
 }
 /// Determines whether the input string is valid Base64.
 pub fn is_base64(input: &str) -> bool {
-    input.len() % 4 == 0
+    input.len().is_multiple_of(4)
         && input
             .bytes()
             .all(|b| matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'+' | b'/' | b'='))
@@ -190,15 +190,15 @@ pub fn is_base64(input: &str) -> bool {
 /// "example" in any path component. Case-insensitive.
 pub fn is_test_like_path(path: &Path) -> bool {
     path.components().any(|c| {
-        if let std::path::Component::Normal(os) = c {
-            if let Some(name) = os.to_str() {
-                let name = name.to_ascii_lowercase();
-                return name.contains("test")
-                    || name.contains("spec")
-                    || name.contains("fixture")
-                    || name.contains("example")
-                    || name.contains("sample");
-            }
+        if let std::path::Component::Normal(os) = c
+            && let Some(name) = os.to_str()
+        {
+            let name = name.to_ascii_lowercase();
+            return name.contains("test")
+                || name.contains("spec")
+                || name.contains("fixture")
+                || name.contains("example")
+                || name.contains("sample");
         }
         false
     })

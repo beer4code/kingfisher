@@ -281,7 +281,7 @@ mod tests {
                 }],
             },
             blob_id: BlobId::new(b"mock_blob"),
-            finding_fingerprint: 0123,
+            finding_fingerprint: 123,
             rule,
             validation_response_body: validation_body::from_string("validation response"),
             validation_response_status: 200,

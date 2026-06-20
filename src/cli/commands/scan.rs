@@ -348,6 +348,7 @@ pub struct ScanCommandArgs {
     pub provider: Option<ScanInputCommand>,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum ScanOperation {
     Scan(ScanArgs),

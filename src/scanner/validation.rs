@@ -497,7 +497,7 @@ pub async fn run_secret_validation(
             // incorrectly pick up inner unnamed groups when patterns have nested captures
             // like (?<REGEX>...(ABC|DEF)...), causing all matches to share the same
             // validation result.
-            let secret = arc_msg.2.groups.captures.get(0).map_or("", |c| c.raw_value());
+            let secret = arc_msg.2.groups.captures.first().map_or("", |c| c.raw_value());
             let group_key = format!("{}|{}", arc_msg.2.rule.id(), secret);
             trace!(
                 rule_id = %arc_msg.2.rule.id(),
@@ -557,7 +557,7 @@ pub async fn run_secret_validation(
             async move {
                 // VALIDATION DEDUP: Use get(0) for the primary secret value.
                 // See comment above for why this differs from fingerprint/reporting code.
-                let secret = rep_arc.2.groups.captures.get(0).map_or("", |c| c.raw_value());
+                let secret = rep_arc.2.groups.captures.first().map_or("", |c| c.raw_value());
                 let key = format!("{}|{}", rep_arc.2.rule.id(), secret);
 
                 match val_res.entry(key.clone()) {
@@ -626,7 +626,7 @@ pub async fn run_secret_validation(
                 if !match_arc.2.rule.syntax().depends_on_rule.is_empty() {
                     continue;
                 }
-                let secret = match_arc.2.groups.captures.get(0).map_or("", |c| c.raw_value());
+                let secret = match_arc.2.groups.captures.first().map_or("", |c| c.raw_value());
                 let key = format!("{}|{}", match_arc.2.rule.id(), secret);
                 if let Some(cr) = validation_results.get(&key) {
                     let (_, _, existing) = Arc::make_mut(match_arc);
@@ -705,9 +705,6 @@ pub async fn run_secret_validation(
                     let access_map = access_map.clone();
                     let rate_limiter = rate_limiter.clone();
                     let provider_endpoints = provider_endpoints.clone();
-                    let validation_timeout = validation_timeout;
-                    let validation_retries = validation_retries;
-
                     async move {
                         let owned = matches_for_blob
                             .iter()
@@ -730,7 +727,7 @@ pub async fn run_secret_validation(
                             by_key.entry(build_cache_key(&om)).or_default().push(om);
                         }
                         let reps: Vec<_> =
-                            by_key.into_iter().map(|(_k, mut v)| (v.remove(0), v)).collect();
+                            by_key.into_values().map(|mut v| (v.remove(0), v)).collect();
 
                         let validated: Vec<_> =
                             stream::iter(reps.into_iter().map(|(mut rep, mut dups)| {
@@ -822,7 +819,7 @@ pub async fn run_secret_validation(
             };
             for match_arc in slice.iter_mut() {
                 if let Some((success, body, status, dep_caps)) =
-                    dep_updates.get(&match_arc.2.finding_fingerprint).map(|v| v.clone())
+                    dep_updates.get(&match_arc.2.finding_fingerprint).cloned()
                 {
                     let (_, _, existing) = Arc::make_mut(match_arc);
                     existing.validation_success = success;
@@ -843,6 +840,7 @@ pub async fn run_secret_validation(
 // ---------------------------------------------------
 // The core validation logic, used in an async pipeline
 // ---------------------------------------------------
+#[allow(clippy::too_many_arguments)]
 async fn validate_single(
     om: &mut OwnedBlobMatch,
     parser: &Parser,
@@ -1068,7 +1066,8 @@ fn truncate_for_log(message: &str) -> String {
 
 // Helper to compute the cache key for an OwnedBlobMatch.
 fn build_cache_key(om: &OwnedBlobMatch) -> String {
-    let capture0 = om.captures.captures.get(0).map_or(String::new(), |c| c.raw_value().to_string());
+    let capture0 =
+        om.captures.captures.first().map_or(String::new(), |c| c.raw_value().to_string());
 
     let has_context_dependency = om
         .rule
@@ -1124,10 +1123,10 @@ fn maybe_record_access_map(om: &OwnedBlobMatch, collector: Option<&AccessMapColl
             }
         }
         Some(Validation::GCP) => {
-            if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                if !value.is_empty() {
-                    collector.record_gcp(value, fp.clone());
-                }
+            if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_gcp(value, fp.clone());
             }
         }
         Some(Validation::AzureStorage) => {
@@ -1158,33 +1157,32 @@ fn maybe_record_access_map(om: &OwnedBlobMatch, collector: Option<&AccessMapColl
             }
         }
         Some(Validation::Postgres) => {
-            if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                if !value.is_empty() {
-                    collector.record_postgres(value, fp.clone());
-                }
+            if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_postgres(value, fp.clone());
             }
         }
         Some(Validation::MongoDB) => {
-            if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                if !value.is_empty() {
-                    collector.record_mongodb(value, fp.clone());
-                }
+            if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_mongodb(value, fp.clone());
             }
         }
         Some(Validation::MySQL) => {
-            if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                if !value.is_empty() {
-                    collector.record_mysql(value, fp.clone());
-                }
+            if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_mysql(value, fp.clone());
             }
         }
         _ => {
-            if om.rule.id().starts_with("kingfisher.github.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_github(value, fp.clone());
-                    }
-                }
+            if om.rule.id().starts_with("kingfisher.github.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_github(value, fp.clone());
             }
             if om.rule.id().starts_with("kingfisher.azure.devops.") {
                 let token = captures
@@ -1255,68 +1253,59 @@ fn maybe_record_access_map(om: &OwnedBlobMatch, collector: Option<&AccessMapColl
                     );
                 }
             }
-            if is_gitlab_rule {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_gitlab(value, fp.clone());
-                    }
-                }
+            if is_gitlab_rule
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_gitlab(value, fp.clone());
             }
-            if om.rule.id().starts_with("kingfisher.slack.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_slack(value, fp.clone());
-                    }
-                }
+            if om.rule.id().starts_with("kingfisher.slack.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_slack(value, fp.clone());
             }
-            if om.rule.id().starts_with("kingfisher.huggingface.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_huggingface(value, fp.clone());
-                    }
-                }
+            if om.rule.id().starts_with("kingfisher.huggingface.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_huggingface(value, fp.clone());
             }
-            if om.rule.id().starts_with("kingfisher.gitea.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_gitea(value, fp.clone());
-                    }
-                }
+            if om.rule.id().starts_with("kingfisher.gitea.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_gitea(value, fp.clone());
             }
-            if om.rule.id().starts_with("kingfisher.bitbucket.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_bitbucket(value, fp.clone());
-                    }
-                }
+            if om.rule.id().starts_with("kingfisher.bitbucket.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_bitbucket(value, fp.clone());
             }
-            if om.rule.id().starts_with("kingfisher.buildkite.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_buildkite(value, fp.clone());
-                    }
-                }
+            if om.rule.id().starts_with("kingfisher.buildkite.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_buildkite(value, fp.clone());
             }
-            if om.rule.id().starts_with("kingfisher.harness.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_harness(value, fp.clone());
-                    }
-                }
+            if om.rule.id().starts_with("kingfisher.harness.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_harness(value, fp.clone());
             }
-            if om.rule.id().starts_with("kingfisher.openai.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_openai(value, fp.clone());
-                    }
-                }
+            if om.rule.id().starts_with("kingfisher.openai.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_openai(value, fp.clone());
             }
-            if om.rule.id().starts_with("kingfisher.anthropic.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_anthropic(value, fp.clone());
-                    }
-                }
+            if om.rule.id().starts_with("kingfisher.anthropic.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_anthropic(value, fp.clone());
             }
             if om.rule.id().starts_with("kingfisher.salesforce.") {
                 let token = captures
@@ -1335,29 +1324,25 @@ fn maybe_record_access_map(om: &OwnedBlobMatch, collector: Option<&AccessMapColl
                     collector.record_salesforce(&token, &instance, fp.clone());
                 }
             }
-            if om.rule.id().starts_with("kingfisher.wandb.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_weightsandbiases(value, fp.clone());
-                    }
-                }
-            }
-            if om.rule.id().starts_with("kingfisher.msteams.")
-                || om.rule.id().starts_with("kingfisher.microsoftteamswebhook.")
+            if om.rule.id().starts_with("kingfisher.wandb.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
             {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_microsoft_teams(value, fp.clone());
-                    }
-                }
+                collector.record_weightsandbiases(value, fp.clone());
+            }
+            if (om.rule.id().starts_with("kingfisher.msteams.")
+                || om.rule.id().starts_with("kingfisher.microsoftteamswebhook."))
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_microsoft_teams(value, fp.clone());
             }
             // --- New providers ---
-            if om.rule.id().starts_with("kingfisher.airtable.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_airtable(value, fp.clone());
-                    }
-                }
+            if om.rule.id().starts_with("kingfisher.airtable.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_airtable(value, fp.clone());
             }
             if om.rule.id().starts_with("kingfisher.algolia.") {
                 let api_key = captures
@@ -1375,17 +1360,16 @@ fn maybe_record_access_map(om: &OwnedBlobMatch, collector: Option<&AccessMapColl
                     collector.record_algolia(&app_id, &api_key, fp.clone());
                 }
             }
-            if om.rule.id().starts_with("kingfisher.artifactory.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        let base_url = captures
-                            .iter()
-                            .find(|(name, ..)| name == "HOST" || name == "URL")
-                            .map(|(_, value, ..)| value.clone())
-                            .or_else(|| om.dependent_captures.get("HOST").cloned());
-                        collector.record_artifactory(value, base_url.as_deref(), fp.clone());
-                    }
-                }
+            if om.rule.id().starts_with("kingfisher.artifactory.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                let base_url = captures
+                    .iter()
+                    .find(|(name, ..)| name == "HOST" || name == "URL")
+                    .map(|(_, value, ..)| value.clone())
+                    .or_else(|| om.dependent_captures.get("HOST").cloned());
+                collector.record_artifactory(value, base_url.as_deref(), fp.clone());
             }
             if om.rule.id().starts_with("kingfisher.auth0.") {
                 let client_secret = captures
@@ -1409,40 +1393,35 @@ fn maybe_record_access_map(om: &OwnedBlobMatch, collector: Option<&AccessMapColl
                     collector.record_auth0(&client_id, &client_secret, &domain, fp.clone());
                 }
             }
-            if om.rule.id().starts_with("kingfisher.circleci.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_circleci(value, fp.clone());
-                    }
-                }
+            if om.rule.id().starts_with("kingfisher.circleci.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_circleci(value, fp.clone());
             }
-            if om.rule.id().starts_with("kingfisher.digitalocean.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_digitalocean(value, fp.clone());
-                    }
-                }
+            if om.rule.id().starts_with("kingfisher.digitalocean.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_digitalocean(value, fp.clone());
             }
-            if om.rule.id().starts_with("kingfisher.fastly.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_fastly(value, fp.clone());
-                    }
-                }
+            if om.rule.id().starts_with("kingfisher.fastly.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_fastly(value, fp.clone());
             }
-            if om.rule.id().starts_with("kingfisher.hubspot.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_hubspot(value, fp.clone());
-                    }
-                }
+            if om.rule.id().starts_with("kingfisher.hubspot.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_hubspot(value, fp.clone());
             }
-            if om.rule.id().starts_with("kingfisher.ibm.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_ibm_cloud(value, fp.clone());
-                    }
-                }
+            if om.rule.id().starts_with("kingfisher.ibm.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_ibm_cloud(value, fp.clone());
             }
             if om.rule.id().starts_with("kingfisher.jira.") {
                 let token = captures
@@ -1497,21 +1476,18 @@ fn maybe_record_access_map(om: &OwnedBlobMatch, collector: Option<&AccessMapColl
                     collector.record_plaid(&client_id, &secret, fp.clone());
                 }
             }
-            if om.rule.id().starts_with("kingfisher.sendgrid.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_sendgrid(value, fp.clone());
-                    }
-                }
-            }
-            if om.rule.id().starts_with("kingfisher.sendinblue.")
-                || om.rule.id().starts_with("kingfisher.brevo.")
+            if om.rule.id().starts_with("kingfisher.sendgrid.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
             {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_sendinblue(value, fp.clone());
-                    }
-                }
+                collector.record_sendgrid(value, fp.clone());
+            }
+            if (om.rule.id().starts_with("kingfisher.sendinblue.")
+                || om.rule.id().starts_with("kingfisher.brevo."))
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_sendinblue(value, fp.clone());
             }
             if om.rule.id().starts_with("kingfisher.shopify.") {
                 let token = captures
@@ -1529,40 +1505,35 @@ fn maybe_record_access_map(om: &OwnedBlobMatch, collector: Option<&AccessMapColl
                     collector.record_shopify(&token, &subdomain, fp.clone());
                 }
             }
-            if om.rule.id().starts_with("kingfisher.square.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_square(value, fp.clone());
-                    }
-                }
-            }
-            if om.rule.id().starts_with("kingfisher.stripe.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_stripe(value, fp.clone());
-                    }
-                }
-            }
-            if om.rule.id().starts_with("kingfisher.terraform.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_terraform(value, fp.clone());
-                    }
-                }
-            }
-            if om.rule.id().starts_with("kingfisher.jfrog.")
-                || om.rule.id().starts_with("kingfisher.xray.")
+            if om.rule.id().starts_with("kingfisher.square.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
             {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        let base_url = captures
-                            .iter()
-                            .find(|(name, ..)| name == "HOST" || name == "URL")
-                            .map(|(_, value, ..)| value.clone())
-                            .or_else(|| om.dependent_captures.get("HOST").cloned());
-                        collector.record_xray(value, base_url.as_deref(), fp.clone());
-                    }
-                }
+                collector.record_square(value, fp.clone());
+            }
+            if om.rule.id().starts_with("kingfisher.stripe.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_stripe(value, fp.clone());
+            }
+            if om.rule.id().starts_with("kingfisher.terraform.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_terraform(value, fp.clone());
+            }
+            if (om.rule.id().starts_with("kingfisher.jfrog.")
+                || om.rule.id().starts_with("kingfisher.xray."))
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                let base_url = captures
+                    .iter()
+                    .find(|(name, ..)| name == "HOST" || name == "URL")
+                    .map(|(_, value, ..)| value.clone())
+                    .or_else(|| om.dependent_captures.get("HOST").cloned());
+                collector.record_xray(value, base_url.as_deref(), fp.clone());
             }
             if om.rule.id().starts_with("kingfisher.zendesk.") {
                 let token = captures
@@ -1580,12 +1551,11 @@ fn maybe_record_access_map(om: &OwnedBlobMatch, collector: Option<&AccessMapColl
                     collector.record_zendesk(&token, &subdomain, fp.clone());
                 }
             }
-            if om.rule.id().starts_with("kingfisher.monday.") {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_monday(value, fp.clone());
-                    }
-                }
+            if om.rule.id().starts_with("kingfisher.monday.")
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_monday(value, fp.clone());
             }
             // Only Asana rules whose TOKEN capture is a standalone access/PAT:
             // .3 (legacy 0/...), .4 (V1 1/...), .5 (V2 2/...). Rule .1 is a client ID
@@ -1593,19 +1563,16 @@ fn maybe_record_access_map(om: &OwnedBlobMatch, collector: Option<&AccessMapColl
             if matches!(
                 om.rule.id(),
                 "kingfisher.asana.3" | "kingfisher.asana.4" | "kingfisher.asana.5"
-            ) {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_asana(value, fp.clone());
-                    }
-                }
+            ) && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_asana(value, fp.clone());
             }
-            if om.rule.id() == "kingfisher.pinecone.1" {
-                if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN") {
-                    if !value.is_empty() {
-                        collector.record_pinecone(value, fp.clone());
-                    }
-                }
+            if om.rule.id() == "kingfisher.pinecone.1"
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                collector.record_pinecone(value, fp.clone());
             }
         }
     }

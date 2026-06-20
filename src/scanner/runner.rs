@@ -639,7 +639,6 @@ fn effective_max_validation_body_len(args: &scan::ScanArgs) -> usize {
 }
 
 /// Runs the validation phase on matches in the datastore.
-#[expect(clippy::too_many_arguments)]
 async fn run_validation_phase(
     datastore: &Arc<Mutex<FindingsStore>>,
     validation_deps: &Option<ValidationDeps>,
@@ -703,7 +702,7 @@ async fn run_sequential_scan(
     // continue cloning into `/tmp` after the scan has already failed.
     let scan_result: Result<()> = (|| {
         if !input_roots.is_empty() {
-            let _inputs = enumerate_filesystem_inputs(
+            enumerate_filesystem_inputs(
                 args,
                 datastore.clone(),
                 input_roots,
@@ -719,7 +718,7 @@ async fn run_sequential_scan(
             enumerate_filesystem_inputs(
                 args,
                 datastore.clone(),
-                &[repo_root.clone()],
+                std::slice::from_ref(&repo_root),
                 progress_enabled,
                 rules_db,
                 enable_profiling,
@@ -1026,7 +1025,7 @@ async fn run_parallel_scan(
                         enumerate_filesystem_inputs(
                             &args,
                             Arc::clone(&repo_datastore),
-                            &[root.clone()],
+                            std::slice::from_ref(&root),
                             progress_enabled,
                             rules_db,
                             enable_profiling,
@@ -1043,7 +1042,7 @@ async fn run_parallel_scan(
                                 &mut ds,
                                 baseline_path.as_ref(),
                                 args.manage_baseline,
-                                &[root.clone()],
+                                std::slice::from_ref(&root),
                             )?;
                         }
 
@@ -1210,7 +1209,7 @@ async fn run_parallel_scan(
     let aggregate_summary = if ran_repo_scan.load(Ordering::Relaxed) {
         let totals = compute_scan_totals(datastore, args, matcher_stats.as_ref());
         let mut sorted: Vec<_> = datastore.lock().unwrap().get_summary().into_iter().collect();
-        sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted.sort_by_key(|b| std::cmp::Reverse(b.1));
         Some((totals, sorted))
     } else {
         None
@@ -1475,9 +1474,6 @@ pub fn load_and_record_rules(
         }
     };
     init_progress.set_message("Recording rules...");
-    datastore
-        .lock()
-        .unwrap()
-        .record_rules(rules_db.rules().iter().cloned().collect::<Vec<_>>().as_slice());
+    datastore.lock().unwrap().record_rules(rules_db.rules().to_vec().as_slice());
     Ok(rules_db)
 }

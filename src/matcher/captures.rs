@@ -115,7 +115,7 @@ impl SerializableCaptures {
             if let Some(cap) = captures.get(0) {
                 let raw_value = String::from_utf8_lossy(cap.as_bytes());
                 let raw_interned = intern(raw_value.as_ref());
-                let name = capture_names.get(0).and_then(|opt| *opt);
+                let name = capture_names.first().and_then(|opt| *opt);
 
                 serialized_captures.push(SerializableCapture {
                     name,
