@@ -66,7 +66,7 @@ use kingfisher::{
             inputs::{ContentFilteringArgs, InputSpecifierArgs},
             output::{OutputArgs, ReportOutputFormat},
             rules::{
-                RuleCacheArgs, RuleSpecifierArgs, RulesCheckArgs, RulesCommand,
+                RuleCacheArgs, RuleCachePruneArgs, RuleSpecifierArgs, RulesCheckArgs, RulesCommand,
                 RulesCompileCacheArgs, RulesListArgs, RulesListOutputFormat,
             },
         },
@@ -77,7 +77,7 @@ use kingfisher::{
     gitea, github, huggingface,
     reporter::{DetailsReporter, ScanAuditContext, styles::Styles},
     rule_loader::RuleLoader,
-    rules_database::{RuleCacheConfig, RulesDatabase},
+    rules_database::{RuleCacheConfig, RuleCachePruneConfig, RulesDatabase, prune_rule_cache},
     scanner::{load_and_record_rules, run_scan},
     update::{check_for_update_async, rewrite_argv_for_reexec},
     util::tokio_blocking_threads_limit,
@@ -1581,6 +1581,9 @@ async fn async_main(args: CommandLineArgs, matches: clap::ArgMatches) -> Result<
                     RulesCommand::CompileCache(cache_args) => {
                         run_rules_compile_cache(cache_args)?;
                     }
+                    RulesCommand::PruneCache(prune_args) => {
+                        run_rules_prune_cache(prune_args)?;
+                    }
                     RulesCommand::List(list_args) => {
                         run_rules_list(list_args)?;
                     }
@@ -1781,6 +1784,34 @@ pub fn run_rules_compile_cache(args: &RulesCompileCacheArgs) -> Result<()> {
             .context("Failed to compile rules with Vectorscan cache")?;
 
     println!("Rule cache ready: {} rules in {}", rules_db.num_rules(), cache.cache_dir().display());
+    Ok(())
+}
+
+/// Run the rules prune-cache command
+pub fn run_rules_prune_cache(args: &RuleCachePruneArgs) -> Result<()> {
+    let cache = RuleCacheConfig::from_dir_or_env(args.cache.rule_cache_dir.clone());
+    let summary = prune_rule_cache(
+        &cache,
+        &RuleCachePruneConfig {
+            max_entries: args.max_entries,
+            max_age: args.max_age,
+            protected_cache_key: None,
+            dry_run: args.dry_run,
+        },
+    );
+
+    let action = if args.dry_run { "would remove" } else { "removed" };
+    println!(
+        "Rule cache prune {action} {} entries ({} bytes) from {}; scanned {} entries, {} valid, {} invalid, {} protected, {} removal errors",
+        if args.dry_run { summary.candidate_entries } else { summary.removed_entries },
+        if args.dry_run { summary.candidate_bytes } else { summary.removed_bytes },
+        cache.cache_dir().display(),
+        summary.scanned_entries,
+        summary.valid_entries,
+        summary.invalid_entries,
+        summary.protected_entries,
+        summary.removal_errors
+    );
     Ok(())
 }
 

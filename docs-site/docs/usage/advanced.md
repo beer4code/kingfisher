@@ -339,9 +339,30 @@ To pre-warm the cache before the first scan, run:
 kingfisher rules compile-cache
 ```
 
+Cache pruning is opt-in. To remove old compiled databases during a scan, pass `--prune-rule-cache`. By default, pruning keeps at least 10 cache entries and removes only entries older than 30 days. Tune those thresholds with `--rule-cache-max-entries` and `--rule-cache-max-age`:
+
+```bash
+kingfisher scan . --staged --prune-rule-cache
+
+kingfisher scan . --staged \
+  --prune-rule-cache \
+  --rule-cache-max-entries 20 \
+  --rule-cache-max-age 14d
+```
+
+To inspect or prune the cache without scanning, use `kingfisher rules prune-cache`:
+
+```bash
+kingfisher rules prune-cache --dry-run
+
+kingfisher rules prune-cache \
+  --rule-cache-max-entries 20 \
+  --rule-cache-max-age 14d
+```
+
 By default, Kingfisher logs the cache directory in use. Pass `--debug` or `-v` to see cache hit/miss details and when new entries are written.
 
-The cache key includes the resolved rule order, rule patterns, platform, cache format, and Vectorscan runtime version. This works with built-in rules and custom rules loaded through `--rules-path`. When built-in or custom rule patterns change, Kingfisher uses a new cache entry automatically. If a cache entry is missing, corrupt, or incompatible with the current platform, Kingfisher falls back to compiling normally and refreshes the cache.
+The cache key includes the resolved rule order, rule patterns, platform, cache format, and Vectorscan runtime version. This works with built-in rules and custom rules loaded through `--rules-path`. When built-in rules, custom rule patterns, or the Vectorscan runtime version change, Kingfisher uses a new cache entry automatically. If a cache entry is missing, corrupt, or incompatible with the current platform, Kingfisher falls back to compiling normally and refreshes the cache.
 
 ## Custom Rules
 

@@ -28,7 +28,10 @@ use crate::{
     rule_loader::RuleLoader,
     rule_profiling::ConcurrentRuleProfiler,
     rules::rule::Validation,
-    rules_database::{RuleCacheConfig, RulesDatabase},
+    rules_database::{
+        RuleCacheConfig, RuleCachePruneConfig, RulesDatabase, compute_rule_cache_key,
+        prune_rule_cache,
+    },
     safe_list,
     scanner::{
         AccessMapCollector, clone_or_update_git_repos_streaming, enumerate_azure_repos,
@@ -1454,7 +1457,7 @@ pub fn load_and_record_rules(
             .context("Failed to load rules")?;
         let resolved = loaded.resolve_enabled_rules().context("Failed to resolve rules")?;
         // Apply min_entropy override if specified
-        let rules = resolved
+        let rules: Vec<_> = resolved
             .into_iter()
             .cloned()
             .map(|mut rule| {
@@ -1467,6 +1470,27 @@ pub fn load_and_record_rules(
         if args.rule_cache.enabled() {
             let cache = RuleCacheConfig::from_dir_or_env(args.rule_cache.rule_cache_dir.clone());
             info!(cache_dir = %cache.cache_dir().display(), "Using Vectorscan rule cache");
+            if args.rule_cache.prune_rule_cache {
+                let protected_cache_key = compute_rule_cache_key(&rules);
+                let summary = prune_rule_cache(
+                    &cache,
+                    &RuleCachePruneConfig {
+                        max_entries: args.rule_cache.rule_cache_max_entries,
+                        max_age: args.rule_cache.rule_cache_max_age,
+                        protected_cache_key: Some(protected_cache_key),
+                        dry_run: false,
+                    },
+                );
+                info!(
+                    cache_dir = %cache.cache_dir().display(),
+                    scanned_entries = summary.scanned_entries,
+                    valid_entries = summary.valid_entries,
+                    removed_entries = summary.removed_entries,
+                    removed_bytes = summary.removed_bytes,
+                    removal_errors = summary.removal_errors,
+                    "Pruned Vectorscan rule cache"
+                );
+            }
             RulesDatabase::from_rules_with_cache(rules, &cache)
                 .context("Failed to compile rules with Vectorscan cache")?
         } else {

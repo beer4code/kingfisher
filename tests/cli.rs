@@ -7,6 +7,26 @@ use tempfile::tempdir;
 mod test {
 
     use super::*;
+
+    fn write_fake_cache_entry(cache_dir: &std::path::Path, cache_key: &str) {
+        let header = serde_json::json!({
+            "format_version": 1,
+            "cache_key": cache_key,
+            "rule_count": 1,
+            "vectorscan_version": "test",
+            "target": "test",
+            "database_kind": "block",
+        });
+        let header_bytes = serde_json::to_vec(&header).expect("header should serialize");
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"KFRULEDB");
+        bytes.extend_from_slice(&(header_bytes.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&header_bytes);
+        bytes.extend_from_slice(b"not-a-real-vectorscan-db");
+        fs::write(cache_dir.join(format!("{cache_key}.vscdb")), bytes)
+            .expect("cache entry should be written");
+    }
+
     #[test]
     fn cli_lists_rules_pretty() {
         Command::new(assert_cmd::cargo::cargo_bin!("kingfisher"))
@@ -202,5 +222,89 @@ rules:
         assert_eq!(second_decoded["scan"]["summary"]["findings"], 1);
         assert_eq!(second_decoded["findings"][0]["snippet"], "demo_secret_abcd");
         assert_eq!(fs::read_dir(&cache_dir).expect("cache dir should exist").count(), 2);
+    }
+
+    #[test]
+    fn cli_rules_prune_cache_dry_run_does_not_delete_candidates() {
+        let temp = tempdir().expect("tempdir should be created");
+        let cache_dir = temp.path().join("rule-cache");
+        fs::create_dir_all(&cache_dir).expect("cache dir should be created");
+        for index in 0..12 {
+            write_fake_cache_entry(&cache_dir, &format!("entry-{index:02}"));
+        }
+
+        Command::new(assert_cmd::cargo::cargo_bin!("kingfisher"))
+            .args([
+                "rules",
+                "prune-cache",
+                "--rule-cache-dir",
+                cache_dir.to_str().unwrap(),
+                "--rule-cache-max-entries",
+                "10",
+                "--rule-cache-max-age",
+                "0s",
+                "--dry-run",
+                "--no-update-check",
+            ])
+            .assert()
+            .success()
+            .stdout(contains("would remove 2 entries"));
+
+        assert_eq!(fs::read_dir(&cache_dir).expect("cache dir should exist").count(), 12);
+    }
+
+    #[test]
+    fn cli_scan_prune_rule_cache_removes_old_excess_entries() {
+        let temp = tempdir().expect("tempdir should be created");
+        let rules_dir = temp.path().join("rules");
+        let input_dir = temp.path().join("repo");
+        let cache_dir = temp.path().join("rule-cache");
+        let output_toon = temp.path().join("findings.toon");
+
+        fs::create_dir_all(&rules_dir).expect("rules directory should be created");
+        fs::create_dir_all(&input_dir).expect("input directory should be created");
+        fs::create_dir_all(&cache_dir).expect("cache dir should be created");
+        fs::write(input_dir.join("README.txt"), "demo_secret_1234\n")
+            .expect("seed file should be written");
+        fs::write(
+            rules_dir.join("demo.yml"),
+            r#"
+rules:
+  - id: kingfisher.demo.1
+    name: Demo secret
+    pattern: '(demo_secret_[0-9]{4})'
+    confidence: medium
+"#,
+        )
+        .expect("rule should be written");
+        for index in 0..12 {
+            write_fake_cache_entry(&cache_dir, &format!("entry-{index:02}"));
+        }
+
+        Command::new(assert_cmd::cargo::cargo_bin!("kingfisher"))
+            .args([
+                "scan",
+                input_dir.to_str().unwrap(),
+                "--format",
+                "toon",
+                "--output",
+                output_toon.to_str().unwrap(),
+                "--rules-path",
+                rules_dir.to_str().unwrap(),
+                "--load-builtins=false",
+                "--rule-cache-dir",
+                cache_dir.to_str().unwrap(),
+                "--prune-rule-cache",
+                "--rule-cache-max-entries",
+                "10",
+                "--rule-cache-max-age",
+                "0s",
+                "--no-validate",
+                "--no-update-check",
+            ])
+            .assert()
+            .code(200);
+
+        assert_eq!(fs::read_dir(&cache_dir).expect("cache dir should exist").count(), 11);
     }
 }

@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 - Compiled Vectorscan rule caching is now enabled by default, with `--no-rule-cache` available for opt-out and `--rule-cache-dir` / `KF_RULE_CACHE_DIR` for custom or Docker-mounted cache locations.
 - Cache entries are keyed so built-in and external `--rules-path` rule changes refresh automatically; stale, corrupt, unreadable, or unwritable cache entries fall back to normal compilation without failing the scan.
 - Added INFO logging for the cache location in use, plus `kingfisher rules compile-cache` for prebuilding the cache explicitly.
+- Added opt-in rule cache pruning via `--prune-rule-cache` and `kingfisher rules prune-cache`, with entry-count and age thresholds.
 
 ## [v1.103.0]
 - Git clone and remote-update operations now enforce wall-clock timeouts (20 min and 10 min defaults respectively) so a single unresponsive remote cannot park a clone worker indefinitely. Configurable via `KF_GIT_CLONE_TIMEOUT_SECS` and `KF_GIT_UPDATE_TIMEOUT_SECS`.

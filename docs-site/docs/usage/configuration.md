@@ -286,6 +286,8 @@ git:
 Unknown fields are rejected (typo protection). Empty sections and a missing
 top-level file are both fine.
 
+Rule cache pruning is intentionally CLI-only in v1. Use `kingfisher rules prune-cache` for manual cleanup, or pass `--prune-rule-cache` with optional `--rule-cache-max-entries` and `--rule-cache-max-age` thresholds on scans.
+
 ## Example: CI workflow
 
 A typical `kingfisher.yaml` for a CI repo, paired with a workflow step

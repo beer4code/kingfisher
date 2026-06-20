@@ -326,7 +326,7 @@ kingfisher rules compile-cache
 kingfisher scan . --staged
 ```
 
-Kingfisher caches compiled rules by default and uses a platform default cache directory unless `--rule-cache-dir` or `KF_RULE_CACHE_DIR` is set. For Docker runs, mount a host cache directory and set `KF_RULE_CACHE_DIR` so repeated disposable containers can reuse it. Custom rules loaded with `--rules-path` are included in the cache key, so changing a rule automatically refreshes the cache entry. Use `--no-rule-cache` to opt out. See [Compiled Rule Cache](docs/ADVANCED.md#compiled-rule-cache) for details.
+Kingfisher caches compiled rules by default and uses a platform default cache directory unless `--rule-cache-dir` or `KF_RULE_CACHE_DIR` is set. For Docker runs, mount a host cache directory and set `KF_RULE_CACHE_DIR` so repeated disposable containers can reuse it. Custom rules loaded with `--rules-path` are included in the cache key, so changing a rule automatically refreshes the cache entry. Use `--no-rule-cache` to opt out, and `--prune-rule-cache` or `kingfisher rules prune-cache` to remove old entries. See [Compiled Rule Cache](docs/ADVANCED.md#compiled-rule-cache) for details.
 
 ## Verifying Releases
 
