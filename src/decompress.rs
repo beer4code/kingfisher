@@ -132,11 +132,11 @@ fn handle_tar_archive_streaming(
             let logical_path = format!("{}!{}", archive_path.display(), path_in_tar);
 
             let out_path = base_dir.join(&path_in_tar);
-            if let Some(parent) = out_path.parent() {
-                if let Err(e) = fs::create_dir_all(parent) {
-                    tracing::debug!("failed to create directory {}: {}", parent.display(), e);
-                    continue;
-                }
+            if let Some(parent) = out_path.parent()
+                && let Err(e) = fs::create_dir_all(parent)
+            {
+                tracing::debug!("failed to create directory {}: {}", parent.display(), e);
+                continue;
             }
             match fs::File::create(&out_path) {
                 Ok(mut out_file) => {
@@ -334,11 +334,11 @@ fn handle_zip_archive_streaming(
             let logical_path = format!("{}!{}", archive_path.display(), name_in_zip);
 
             let out_path = base_dir.join(&name_in_zip);
-            if let Some(parent) = out_path.parent() {
-                if let Err(e) = fs::create_dir_all(parent) {
-                    tracing::debug!("failed to create directory {}: {}", parent.display(), e);
-                    continue;
-                }
+            if let Some(parent) = out_path.parent()
+                && let Err(e) = fs::create_dir_all(parent)
+            {
+                tracing::debug!("failed to create directory {}: {}", parent.display(), e);
+                continue;
             }
             match fs::File::create(&out_path) {
                 Ok(mut out_file) => {
@@ -701,12 +701,12 @@ pub fn decompress_file_with_single_stream_cap(
 
         // If the step produced a single on-disk file that is itself a .tar,
         // recurse on that file.
-        if let CompressedContent::RawFile(ref p) = content {
-            if should_extract_tar {
-                owned_buf = Some(p.clone()); // own the path
-                current_path = owned_buf.as_ref().unwrap();
-                continue;
-            }
+        if let CompressedContent::RawFile(ref p) = content
+            && should_extract_tar
+        {
+            owned_buf = Some(p.clone()); // own the path
+            current_path = owned_buf.as_ref().unwrap();
+            continue;
         }
         return Ok(content);
     }
@@ -741,23 +741,23 @@ pub fn decompress_file_to_temp(path: &Path) -> Result<(CompressedContent, TempDi
         if let Some(prefix) = &prefix_for_replace {
             let prefix_str = prefix.display().to_string();
             for (name, _) in files.iter_mut() {
-                if let Some(rest) = name.strip_prefix(&prefix_str) {
-                    if let Some((_, suffix)) = rest.split_once('!') {
-                        *name = format!("{}!{}", path.display(), suffix);
-                    }
+                if let Some(rest) = name.strip_prefix(&prefix_str)
+                    && let Some((_, suffix)) = rest.split_once('!')
+                {
+                    *name = format!("{}!{}", path.display(), suffix);
                 }
             }
         }
         materialize_in_memory_archive_entries(files, temp_dir.path())?;
-    } else if let CompressedContent::ArchiveFiles(ref mut entries) = content {
-        if let Some(prefix) = &prefix_for_replace {
-            let prefix_str = prefix.display().to_string();
-            for (name, _) in entries.iter_mut() {
-                if let Some(rest) = name.strip_prefix(&prefix_str) {
-                    if let Some((_, suffix)) = rest.split_once('!') {
-                        *name = format!("{}!{}", path.display(), suffix);
-                    }
-                }
+    } else if let CompressedContent::ArchiveFiles(ref mut entries) = content
+        && let Some(prefix) = &prefix_for_replace
+    {
+        let prefix_str = prefix.display().to_string();
+        for (name, _) in entries.iter_mut() {
+            if let Some(rest) = name.strip_prefix(&prefix_str)
+                && let Some((_, suffix)) = rest.split_once('!')
+            {
+                *name = format!("{}!{}", path.display(), suffix);
             }
         }
     }

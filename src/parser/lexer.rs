@@ -274,10 +274,10 @@ where
         if trimmed.is_empty() || trimmed.starts_with('[') {
             continue;
         }
-        if let Some((key, value)) = split_assignment(trimmed, '=') {
-            if emit_value(key, value, true, false, sink).is_break() {
-                return Ok(());
-            }
+        if let Some((key, value)) = split_assignment(trimmed, '=')
+            && emit_value(key, value, true, false, sink).is_break()
+        {
+            return Ok(());
         }
     }
     Ok(())
@@ -391,7 +391,7 @@ fn context_lines(text: &str) -> impl Iterator<Item = Cow<'_, str>> {
             return Some(stitched);
         }
 
-        for line in lines.by_ref() {
+        if let Some(line) = lines.by_ref().next() {
             let trimmed = line.trim();
             if !trimmed.is_empty() {
                 if active {
@@ -930,14 +930,12 @@ fn parse_csharp_verbatim_literal_span(input: &str, start: usize) -> Option<Liter
     let quote_idx =
         if matches!(bytes.get(start), Some(b'@')) && matches!(bytes.get(start + 1), Some(b'"')) {
             start + 1
-        } else if matches!(bytes.get(start), Some(b'$'))
+        } else if (matches!(bytes.get(start), Some(b'$'))
             && matches!(bytes.get(start + 1), Some(b'@'))
-            && matches!(bytes.get(start + 2), Some(b'"'))
-        {
-            start + 2
-        } else if matches!(bytes.get(start), Some(b'@'))
-            && matches!(bytes.get(start + 1), Some(b'$'))
-            && matches!(bytes.get(start + 2), Some(b'"'))
+            && matches!(bytes.get(start + 2), Some(b'"')))
+            || (matches!(bytes.get(start), Some(b'@'))
+                && matches!(bytes.get(start + 1), Some(b'$'))
+                && matches!(bytes.get(start + 2), Some(b'"')))
         {
             start + 2
         } else {
@@ -978,9 +976,7 @@ fn parse_quoted_literal_span(input: &str, start: usize) -> Option<LiteralSpan> {
         }
     }
 
-    let Some(&quote) = bytes.get(quote_idx) else {
-        return None;
-    };
+    let &quote = bytes.get(quote_idx)?;
     if !matches!(quote, b'\'' | b'"') {
         return None;
     }

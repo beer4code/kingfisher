@@ -227,10 +227,10 @@ impl FindingsStore {
                         m.groups
                             .captures
                             .iter()
-                            .find(|c| matches!(c.name.as_deref(), Some("TOKEN")))
+                            .find(|c| matches!(c.name, Some("TOKEN")))
                             .map(|c| c.raw_value())
                     })
-                    .or_else(|| m.groups.captures.get(0).map(|c| c.raw_value()))
+                    .or_else(|| m.groups.captures.first().map(|c| c.raw_value()))
                     .unwrap_or("");
 
                 let origin_kind = dedup_origin_kind(&origin);

@@ -227,13 +227,12 @@ fn build_var_args(
     let mut var_args = Vec::new();
 
     // Add AKID if available (for AWS)
-    if let Some(akid) = akid_from_captures.or(akid_from_validation_body) {
-        if !akid.is_empty()
-            && required_vars.contains("AKID")
-            && !dependent_captures.contains_key("AKID")
-        {
-            var_args.push(format!("--var AKID={}", escape_for_shell(akid)));
-        }
+    if let Some(akid) = akid_from_captures.or(akid_from_validation_body)
+        && !akid.is_empty()
+        && required_vars.contains("AKID")
+        && !dependent_captures.contains_key("AKID")
+    {
+        var_args.push(format!("--var AKID={}", escape_for_shell(akid)));
     }
 
     // Add dependent captures only when required by the templates.
@@ -577,7 +576,7 @@ impl DetailsReporter {
 
             let atime = cmd
                 .committer_timestamp
-                .format(gix::date::time::format::SHORT.clone())
+                .format(gix::date::time::format::SHORT)
                 .unwrap_or_else(|_| cmd.committer_timestamp.seconds.to_string());
 
             let git_metadata = serde_json::json!({
@@ -656,7 +655,7 @@ impl DetailsReporter {
             .groups
             .captures
             .get(1)
-            .or_else(|| m.groups.captures.get(0))
+            .or_else(|| m.groups.captures.first())
             .map(|capture| capture.raw_value())
             .unwrap_or("");
         let offset_start = m.location.offset_span.start as u64;
@@ -901,7 +900,7 @@ impl DetailsReporter {
                 .captures
                 .iter()
                 .find(|c| c.name.map(|n| n.eq_ignore_ascii_case("TOKEN")).unwrap_or(false))
-                .or_else(|| rm.m.groups.captures.get(0));
+                .or_else(|| rm.m.groups.captures.first());
 
         // Get raw snippet value (for revoke/validate command) and display snippet (for output)
         let (raw_snippet, snippet) = if let Some(capture) = snippet_capture {
@@ -1375,10 +1374,10 @@ impl Reportable for DetailsReporter {
 }
 
 fn generated_at_for_scan_timezone(scan_timestamp: Option<&str>) -> String {
-    if let Some(scan_timestamp) = scan_timestamp {
-        if let Ok(scan_dt) = chrono::DateTime::parse_from_rfc3339(scan_timestamp) {
-            return Utc::now().with_timezone(scan_dt.offset()).to_rfc3339();
-        }
+    if let Some(scan_timestamp) = scan_timestamp
+        && let Ok(scan_dt) = chrono::DateTime::parse_from_rfc3339(scan_timestamp)
+    {
+        return Utc::now().with_timezone(scan_dt.offset()).to_rfc3339();
     }
     Local::now().to_rfc3339()
 }
@@ -1622,6 +1621,7 @@ pub struct FindingRecordData {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
     use crate::{
@@ -1635,7 +1635,7 @@ mod tests {
             gitea::GiteaRepoType,
             github::{GitCloneMode, GitHistoryMode, GitHubRepoType},
             gitlab::GitLabRepoType,
-            rules::RuleSpecifierArgs,
+            rules::{RuleCacheArgs, RuleSpecifierArgs},
         },
         git_commit_metadata::CommitMetadata,
         location::{Location, OffsetSpan, SourcePoint, SourceSpan},
@@ -1750,6 +1750,7 @@ mod tests {
         ScanArgs {
             num_jobs: 1,
             rules: RuleSpecifierArgs::default(),
+            rule_cache: RuleCacheArgs::default(),
             input_specifier_args: InputSpecifierArgs {
                 path_inputs: Vec::new(),
                 git_url: Vec::new(),

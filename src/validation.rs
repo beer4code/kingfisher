@@ -278,7 +278,7 @@ fn validation_dedup_key(m: &OwnedBlobMatch) -> u64 {
 
     // Use the first capture (primary secret) for deduplication.
     // Note: capture_value is stored in a variable because it's also used in trace! below.
-    let capture_value = m.captures.captures.get(0).map(|c| c.raw_value());
+    let capture_value = m.captures.captures.first().map(|c| c.raw_value());
     if let Some(val) = capture_value {
         val.hash(&mut hasher);
     }
@@ -365,6 +365,7 @@ pub fn is_parseable_mysql_uri(uri: &str) -> bool {
 }
 
 /// Collect dependent variables and missing dependencies from the provided matches.
+#[allow(clippy::type_complexity)]
 pub fn collect_variables_and_dependencies(
     matches: &[OwnedBlobMatch],
 ) -> (FxHashMap<String, Vec<(String, OffsetSpan)>>, FxHashMap<String, Vec<String>>) {
@@ -390,15 +391,12 @@ pub fn collect_variables_and_dependencies(
                     let matching_input = other_match
                         .captures
                         .captures
-                        .get(0)
+                        .first()
                         .expect("Expected at least one capture");
-                    variable_map
-                        .entry(dependency.variable.to_uppercase())
-                        .or_insert_with(Vec::new)
-                        .push((
-                            matching_input.raw_value().to_string(),
-                            other_match.matching_input_offset_span,
-                        ));
+                    variable_map.entry(dependency.variable.to_uppercase()).or_default().push((
+                        matching_input.raw_value().to_string(),
+                        other_match.matching_input_offset_span,
+                    ));
                 }
             } else {
                 missing_deps.entry(rule_id.clone()).or_default().push(dependency.rule_id.clone());
@@ -462,6 +460,7 @@ async fn render_template(
 }
 
 /// Validate a single match with a configurable timeout.
+#[allow(clippy::too_many_arguments)]
 pub async fn validate_single_match(
     m: &mut OwnedBlobMatch,
     parser: &liquid::Parser,
@@ -533,7 +532,8 @@ pub async fn validate_single_match(
 /// Perform the actual validation of a match.
 /// Guarantees that each <RULE-ID>|<secret> is validated only once per process,
 /// even when `--no-dedup` is used.
-async fn timed_validate_single_match<'a>(
+#[allow(clippy::too_many_arguments)]
+async fn timed_validate_single_match(
     m: &mut OwnedBlobMatch,
     parser: &liquid::Parser,
     clients: &ValidationClients,
@@ -555,13 +555,13 @@ async fn timed_validate_single_match<'a>(
     // ──────────────────────────────────────────────────────────
     let fp = validation_dedup_key(m);
 
-    if let Some(entry) = VALIDATION_CACHE.get_or_init(DashMap::new).get(&fp) {
-        if entry.timestamp.elapsed() < Duration::from_secs(VALIDATION_CACHE_SECONDS) {
-            m.validation_success = entry.is_valid;
-            m.validation_response_body = entry.body.clone();
-            m.validation_response_status = entry.status;
-            return;
-        }
+    if let Some(entry) = VALIDATION_CACHE.get_or_init(DashMap::new).get(&fp)
+        && entry.timestamp.elapsed() < Duration::from_secs(VALIDATION_CACHE_SECONDS)
+    {
+        m.validation_success = entry.is_valid;
+        m.validation_response_body = entry.body.clone();
+        m.validation_response_status = entry.status;
+        return;
     }
     if let Some(wait) =
         IN_FLIGHT.get_or_init(DashMap::new).get(&fp).map(|entry| entry.value().clone())
@@ -584,17 +584,17 @@ async fn timed_validate_single_match<'a>(
     // ──────────────────────────────────────────────────────────
 
     // 2. dependency check
-    if let Some(missing) = missing_dependencies.get(&m.rule.syntax().id) {
-        if !missing.is_empty() {
-            m.validation_success = false;
-            m.validation_response_body = validation_body::from_string(format!(
-                "Validation skipped - missing dependent rules: {}",
-                missing.join(", ")
-            ));
-            m.validation_response_status = StatusCode::PRECONDITION_REQUIRED;
-            commit_and_return(m);
-            return;
-        }
+    if let Some(missing) = missing_dependencies.get(&m.rule.syntax().id)
+        && !missing.is_empty()
+    {
+        m.validation_success = false;
+        m.validation_response_body = validation_body::from_string(format!(
+            "Validation skipped - missing dependent rules: {}",
+            missing.join(", ")
+        ));
+        m.validation_response_status = StatusCode::PRECONDITION_REQUIRED;
+        commit_and_return(m);
+        return;
     }
 
     // 3. capture processing
@@ -651,10 +651,10 @@ async fn timed_validate_single_match<'a>(
 
     {
         let rule_syntax = m.rule.syntax();
-        if let (Some(limiter), Some(validation)) = (rate_limiter, rule_syntax.validation.as_ref()) {
-            if should_rate_limit_validation(validation) {
-                limiter.wait_for_rule(m.rule.id()).await;
-            }
+        if let (Some(limiter), Some(validation)) = (rate_limiter, rule_syntax.validation.as_ref())
+            && should_rate_limit_validation(validation)
+        {
+            limiter.wait_for_rule(m.rule.id()).await;
         }
     }
 
@@ -752,6 +752,7 @@ async fn timed_validate_single_match<'a>(
 // Extracted validator functions
 // ═══════════════════════════════════════════════════════════════
 
+#[allow(clippy::too_many_arguments)]
 async fn validate_http(
     m: &mut OwnedBlobMatch,
     http_validation: &kingfisher_rules::rule::HttpValidation,
@@ -1008,6 +1009,7 @@ async fn validate_http(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn validate_grpc(
     m: &mut OwnedBlobMatch,
     grpc_validation_cfg: &kingfisher_rules::rule::GrpcValidation,
@@ -1067,9 +1069,9 @@ async fn validate_grpc(
         headers.get("grpc-message").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
     if grpc_status == "0" {
         body = "grpc-status=0".to_string();
-    } else if body.trim().is_empty() && (!grpc_status.is_empty() || !grpc_message.is_empty()) {
-        body = format!("grpc-status={grpc_status} grpc-message={grpc_message}");
-    } else if body.as_bytes().contains(&0) {
+    } else if (body.trim().is_empty() && (!grpc_status.is_empty() || !grpc_message.is_empty()))
+        || body.as_bytes().contains(&0)
+    {
         body = format!("grpc-status={grpc_status} grpc-message={grpc_message}");
     }
     if max_body_len > 0 {
@@ -1596,10 +1598,8 @@ fn aws_akid_candidates(
 fn dependency_distance(span: OffsetSpan, target_span: OffsetSpan) -> usize {
     if span.end <= target_span.start {
         target_span.start - span.end
-    } else if span.start >= target_span.end {
-        span.start - target_span.end
     } else {
-        0
+        span.start.saturating_sub(target_span.end)
     }
 }
 
@@ -1630,7 +1630,7 @@ async fn validate_gcp_rule(m: &mut OwnedBlobMatch, globals: &Object, cache: &Cac
     }
 
     match gcp::GcpValidator::global() {
-        Ok(validator) => match validator.validate_gcp_credentials(&gcp_json.as_bytes()).await {
+        Ok(validator) => match validator.validate_gcp_credentials(gcp_json.as_bytes()).await {
             Ok((ok, meta)) => {
                 m.validation_success = ok;
                 m.validation_response_body = validation_body::from_string(meta.join("\n"));
@@ -1744,7 +1744,7 @@ fn populate_globals_from_captures(
 
     for (k, v, ..) in captured_values {
         if k.eq_ignore_ascii_case("TOKEN") {
-            if best_token.map_or(true, |best| v.len() >= best.len()) {
+            if best_token.is_none_or(|best| v.len() >= best.len()) {
                 best_token = Some(v);
             }
         } else {

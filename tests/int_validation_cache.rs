@@ -19,7 +19,7 @@ use kingfisher::{
             gitlab::GitLabRepoType,
             inputs::{ContentFilteringArgs, InputSpecifierArgs},
             output::{OutputArgs, ReportOutputFormat},
-            rules::RuleSpecifierArgs,
+            rules::{RuleCacheArgs, RuleSpecifierArgs},
             scan::{ConfidenceLevel, ScanArgs},
         },
         global::{Mode, TlsMode},
@@ -110,6 +110,7 @@ async fn test_validation_cache_and_depvars() -> Result<()> {
             rule: vec!["all".into()],
             load_builtins: false,
         },
+        rule_cache: RuleCacheArgs::default(),
         input_specifier_args: InputSpecifierArgs {
             path_inputs: vec![secret_file.clone()],
             git_url: Vec::new(),

@@ -116,7 +116,11 @@ fn verify_match_in_context_text(re: &Regex, expected_secret: &[u8], text: &[u8])
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, fs, path::PathBuf};
+    use std::{
+        collections::BTreeMap,
+        fs,
+        path::{Path, PathBuf},
+    };
 
     use super::*;
 
@@ -144,7 +148,7 @@ mod tests {
     }
 
     fn current_capture_texts(
-        root: &PathBuf,
+        root: &Path,
         cases: &[(Language, &'static str)],
     ) -> BTreeMap<String, Vec<String>> {
         let mut current = BTreeMap::new();

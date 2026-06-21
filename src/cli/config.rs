@@ -17,6 +17,8 @@
 //! rules:
 //!   enabled: ["all"]
 //!   load_builtins: true
+//!   cache: true
+//!   cache_dir: ./.kingfisher-cache
 //! validation:
 //!   timeout: 10
 //!   rps_per_rule:
@@ -122,6 +124,8 @@ pub struct RulesConfig {
     #[serde(default)]
     pub paths: Vec<PathBuf>,
     pub load_builtins: Option<bool>,
+    pub cache: Option<bool>,
+    pub cache_dir: Option<PathBuf>,
 }
 
 // ----------------------------------------------------------------------------
@@ -506,6 +510,8 @@ rules:
   enabled: ["all", "default"]
   paths: ["./custom-rules"]
   load_builtins: true
+  cache: true
+  cache_dir: "./.kingfisher-cache"
 validation:
   timeout: 15
   retries: 2
@@ -554,6 +560,11 @@ git:
         assert_eq!(cfg.scan.jobs, Some(8));
         assert_eq!(cfg.rules.enabled, vec!["all", "default"]);
         assert_eq!(cfg.rules.paths.len(), 1);
+        assert_eq!(cfg.rules.cache, Some(true));
+        assert_eq!(
+            cfg.rules.cache_dir.as_deref().map(|p| p.to_str().unwrap()),
+            Some("./.kingfisher-cache")
+        );
         assert_eq!(cfg.validation.timeout, Some(15));
         assert_eq!(cfg.validation.rps_per_rule.len(), 2);
         assert_eq!(cfg.filters.max_file_size_mb, Some(128.0));

@@ -52,10 +52,11 @@ fn helper_get_creds(helper: &str, registry: &str) -> Option<(String, String)> {
     if let Some(creds) = run(&bin, registry) {
         return Some(creds);
     }
-    if helper == "keychain" && bin != "docker-credential-osxkeychain" {
-        if let Some(creds) = run("docker-credential-osxkeychain", registry) {
-            return Some(creds);
-        }
+    if helper == "keychain"
+        && bin != "docker-credential-osxkeychain"
+        && let Some(creds) = run("docker-credential-osxkeychain", registry)
+    {
+        return Some(creds);
     }
     None
 }
@@ -383,30 +384,27 @@ fn creds_from_docker_config(registry: &str) -> Option<(String, String)> {
     let json: Value = serde_json::from_str(&content).ok()?;
 
     if let Some(ch) = json.get("credHelpers").and_then(|v| v.get(registry)).and_then(|v| v.as_str())
+        && let Some(creds) = helper_get_creds(ch, registry)
     {
-        if let Some(creds) = helper_get_creds(ch, registry) {
-            return Some(creds);
-        }
+        return Some(creds);
     }
-    if let Some(store) = json.get("credsStore").and_then(|v| v.as_str()) {
-        if let Some(creds) = helper_get_creds(store, registry) {
-            return Some(creds);
-        }
+    if let Some(store) = json.get("credsStore").and_then(|v| v.as_str())
+        && let Some(creds) = helper_get_creds(store, registry)
+    {
+        return Some(creds);
     }
 
-    if let Some(auths) = json.get("auths").and_then(|v| v.as_object()) {
-        if let Some(entry) = auths
+    if let Some(auths) = json.get("auths").and_then(|v| v.as_object())
+        && let Some(entry) = auths
             .get(registry)
             .or_else(|| auths.get(&format!("https://{registry}")))
             .or_else(|| auths.get(&format!("http://{registry}")))
-        {
-            if let Some(auth) = entry.get("auth").and_then(|v| v.as_str()) {
-                let decoded = base64::engine::general_purpose::STANDARD.decode(auth).ok()?;
-                let cred = String::from_utf8(decoded).ok()?;
-                if let Some((u, p)) = cred.split_once(':') {
-                    return Some((u.to_string(), p.to_string()));
-                }
-            }
+        && let Some(auth) = entry.get("auth").and_then(|v| v.as_str())
+    {
+        let decoded = base64::engine::general_purpose::STANDARD.decode(auth).ok()?;
+        let cred = String::from_utf8(decoded).ok()?;
+        if let Some((u, p)) = cred.split_once(':') {
+            return Some((u.to_string(), p.to_string()));
         }
     }
     None

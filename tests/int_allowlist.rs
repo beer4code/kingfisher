@@ -15,7 +15,7 @@ use kingfisher::{
             gitlab::GitLabRepoType,
             inputs::{ContentFilteringArgs, InputSpecifierArgs},
             output::{OutputArgs, ReportOutputFormat},
-            rules::RuleSpecifierArgs,
+            rules::{RuleCacheArgs, RuleSpecifierArgs},
             scan::{ConfidenceLevel, ScanArgs},
         },
         global::{Mode, TlsMode},
@@ -72,6 +72,7 @@ fn run_skiplist(skip_regex: Vec<String>, skip_skipword: Vec<String>) -> Result<u
             rule: vec!["all".into()],
             load_builtins: false,
         },
+        rule_cache: RuleCacheArgs::default(),
         input_specifier_args: InputSpecifierArgs {
             path_inputs: vec![inputs_dir.join("a.txt")],
             git_url: Vec::new(),
@@ -176,7 +177,7 @@ fn run_skiplist(skip_regex: Vec<String>, skip_skipword: Vec<String>) -> Result<u
         view_report: false,
         baseline_file: None,
         manage_baseline: false,
-        skip_regex: skip_regex,
+        skip_regex,
         skip_word: skip_skipword,
         skip_aws_account: Vec::new(),
         skip_aws_account_file: None,
@@ -234,8 +235,7 @@ fn run_skiplist(skip_regex: Vec<String>, skip_skipword: Vec<String>) -> Result<u
         false,
     ))?;
 
-    let x = Ok(datastore.lock().unwrap().get_matches().len());
-    x
+    Ok(datastore.lock().unwrap().get_matches().len())
 }
 
 #[test]

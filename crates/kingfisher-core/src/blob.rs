@@ -9,6 +9,7 @@
 //! Large files are automatically memory-mapped for efficiency.
 
 use std::{
+    borrow::Cow,
     convert::TryInto,
     fs::File,
     io::Read,
@@ -23,8 +24,9 @@ use bstr::{BString, ByteSlice};
 use gix::ObjectId;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
-use schemars::JsonSchema;
+use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sha1::{Digest, Sha1};
 use smallvec::SmallVec;
 
@@ -222,12 +224,14 @@ impl Drop for Blob<'_> {
 #[serde(into = "String")]
 pub struct BlobId([u8; 20]);
 
-impl BlobId {
-    /// Creates a zero-filled (default) `BlobId`.
-    pub fn default() -> Self {
+impl Default for BlobId {
+    /// Creates a zero-filled `BlobId`.
+    fn default() -> Self {
         BlobId([0; 20])
     }
+}
 
+impl BlobId {
     /// Computes a `BlobId` from raw bytes.
     ///
     /// For large inputs, only the first and last 64KB are hashed for performance.
@@ -333,17 +337,15 @@ impl std::fmt::Display for BlobId {
 }
 
 impl JsonSchema for BlobId {
-    fn schema_name() -> String {
+    fn schema_name() -> Cow<'static, str> {
         "BlobId".into()
     }
 
-    fn json_schema(r#gen: &mut schemars::r#gen::SchemaGenerator) -> schemars::schema::Schema {
-        let s = String::json_schema(r#gen);
-        let mut o = s.into_object();
-        o.string().pattern = Some("[0-9a-f]{40}".into());
-        let md = o.metadata();
-        md.description = Some("A hex-encoded blob ID as computed by Git".into());
-        schemars::schema::Schema::Object(o)
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        let mut schema = String::json_schema(generator);
+        schema.insert("pattern".to_owned(), json!("[0-9a-f]{40}"));
+        schema.insert("description".to_owned(), json!("A hex-encoded blob ID as computed by Git"));
+        schema
     }
 }
 

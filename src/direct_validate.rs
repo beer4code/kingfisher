@@ -400,9 +400,9 @@ async fn execute_grpc_validation(
         headers.get("grpc-message").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
     if grpc_status == "0" {
         body = "grpc-status=0".to_string();
-    } else if body.trim().is_empty() && (!grpc_status.is_empty() || !grpc_message.is_empty()) {
-        body = format!("grpc-status={grpc_status} grpc-message={grpc_message}");
-    } else if body.as_bytes().contains(&0) {
+    } else if (body.trim().is_empty() && (!grpc_status.is_empty() || !grpc_message.is_empty()))
+        || body.as_bytes().contains(&0)
+    {
         body = format!("grpc-status={grpc_status} grpc-message={grpc_message}");
     }
 
@@ -589,10 +589,10 @@ pub async fn run_direct_validation(
             );
         }
 
-        if let Some(limiter) = rate_limiter.as_deref() {
-            if should_rate_limit_validation(validation) {
-                limiter.wait_for_rule(&rule_id).await;
-            }
+        if let Some(limiter) = rate_limiter.as_deref()
+            && should_rate_limit_validation(validation)
+        {
+            limiter.wait_for_rule(&rule_id).await;
         }
 
         // Execute validation based on type. Errors from the HTTP / gRPC
@@ -956,7 +956,7 @@ pub(crate) fn create_minimal_scan_args() -> crate::cli::commands::scan::ScanArgs
         gitlab::GitLabRepoType,
         inputs::{ContentFilteringArgs, InputSpecifierArgs},
         output::{OutputArgs, ReportOutputFormat},
-        rules::RuleSpecifierArgs,
+        rules::{RuleCacheArgs, RuleSpecifierArgs},
         scan::{ConfidenceLevel, ScanArgs},
     };
     use url::Url;
@@ -968,6 +968,7 @@ pub(crate) fn create_minimal_scan_args() -> crate::cli::commands::scan::ScanArgs
             rule: vec!["all".into()],
             load_builtins: true,
         },
+        rule_cache: RuleCacheArgs::default(),
         input_specifier_args: InputSpecifierArgs {
             path_inputs: Vec::new(),
             git_url: Vec::new(),

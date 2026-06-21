@@ -1,5 +1,7 @@
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, encode};
-use kingfisher_scanner::validation::jwt::{ValidateOptions, validate_jwt_with};
+use kingfisher_scanner::validation::jwt::{
+    ValidateOptions, ensure_crypto_provider, validate_jwt_with,
+};
 use rsa::RsaPrivateKey;
 use rsa::pkcs1::{EncodeRsaPrivateKey, LineEnding};
 use rsa::pkcs8::EncodePublicKey;
@@ -13,6 +15,8 @@ use rsa::rand_core::OsRng;
 /// are committed to the repository.
 #[tokio::test]
 async fn validate_jwt_with_fallback_key_handles_rs256_without_panicking() {
+    ensure_crypto_provider();
+
     // Generate an ephemeral RSA keypair for this test run only.
     let mut rng = OsRng;
     let private_key = RsaPrivateKey::new(&mut rng, 2048).expect("generate RSA key");

@@ -66,8 +66,8 @@ use kingfisher::{
             inputs::{ContentFilteringArgs, InputSpecifierArgs},
             output::{OutputArgs, ReportOutputFormat},
             rules::{
-                RuleSpecifierArgs, RulesCheckArgs, RulesCommand, RulesListArgs,
-                RulesListOutputFormat,
+                RuleCacheArgs, RuleCachePruneArgs, RuleSpecifierArgs, RulesCheckArgs, RulesCommand,
+                RulesCompileCacheArgs, RulesListArgs, RulesListOutputFormat,
             },
         },
         global::Command,
@@ -77,7 +77,7 @@ use kingfisher::{
     gitea, github, huggingface,
     reporter::{DetailsReporter, ScanAuditContext, styles::Styles},
     rule_loader::RuleLoader,
-    rules_database::RulesDatabase,
+    rules_database::{RuleCacheConfig, RuleCachePruneConfig, RulesDatabase, prune_rule_cache},
     scanner::{load_and_record_rules, run_scan},
     update::{check_for_update_async, rewrite_argv_for_reexec},
     util::tokio_blocking_threads_limit,
@@ -372,11 +372,7 @@ fn apply_config(
     /// default — i.e. the user did not pass `--<flag>` on the CLI and did
     /// not set its `env = ...`. In those cases the config value should win.
     fn config_wins(matches: Option<&clap::ArgMatches>, id: &str) -> bool {
-        match matches.and_then(|m| m.value_source(id)) {
-            None => true,
-            Some(ValueSource::DefaultValue) => true,
-            _ => false,
-        }
+        matches!(matches.and_then(|m| m.value_source(id)), None | Some(ValueSource::DefaultValue))
     }
 
     /// Like `config_wins`, but also inspects a nested provider subcommand's
@@ -403,65 +399,65 @@ fn apply_config(
     scan_args.content_filtering_args.exclude.extend(cfg.filters.exclude.iter().cloned());
 
     // ---------- scan: behavioral scalars ------------------------------------
-    if let Some(c) = cfg.scan.confidence {
-        if config_wins(scan_matches, "confidence") {
-            scan_args.confidence = c.into();
-        }
+    if let Some(c) = cfg.scan.confidence
+        && config_wins(scan_matches, "confidence")
+    {
+        scan_args.confidence = c.into();
     }
-    if let Some(e) = cfg.scan.min_entropy {
-        if config_wins(scan_matches, "min_entropy") {
-            scan_args.min_entropy = Some(e);
-        }
+    if let Some(e) = cfg.scan.min_entropy
+        && config_wins(scan_matches, "min_entropy")
+    {
+        scan_args.min_entropy = Some(e);
     }
-    if let Some(v) = cfg.scan.no_validate {
-        if config_wins(scan_matches, "no_validate") {
-            scan_args.no_validate = v;
-        }
+    if let Some(v) = cfg.scan.no_validate
+        && config_wins(scan_matches, "no_validate")
+    {
+        scan_args.no_validate = v;
     }
-    if let Some(v) = cfg.scan.only_valid {
-        if config_wins(scan_matches, "only_valid") {
-            scan_args.only_valid = v;
-        }
+    if let Some(v) = cfg.scan.only_valid
+        && config_wins(scan_matches, "only_valid")
+    {
+        scan_args.only_valid = v;
     }
-    if let Some(v) = cfg.scan.redact {
-        if config_wins(scan_matches, "redact") {
-            scan_args.redact = v;
-        }
+    if let Some(v) = cfg.scan.redact
+        && config_wins(scan_matches, "redact")
+    {
+        scan_args.redact = v;
     }
-    if let Some(v) = cfg.scan.no_dedup {
-        if config_wins(scan_matches, "no_dedup") {
-            scan_args.no_dedup = v;
-        }
+    if let Some(v) = cfg.scan.no_dedup
+        && config_wins(scan_matches, "no_dedup")
+    {
+        scan_args.no_dedup = v;
     }
-    if let Some(v) = cfg.scan.turbo {
-        if config_wins(scan_matches, "turbo") {
-            scan_args.turbo = v;
-        }
+    if let Some(v) = cfg.scan.turbo
+        && config_wins(scan_matches, "turbo")
+    {
+        scan_args.turbo = v;
     }
-    if let Some(v) = cfg.scan.no_base64 {
-        if config_wins(scan_matches, "no_base64") {
-            scan_args.no_base64 = v;
-        }
+    if let Some(v) = cfg.scan.no_base64
+        && config_wins(scan_matches, "no_base64")
+    {
+        scan_args.no_base64 = v;
     }
-    if let Some(v) = cfg.scan.access_map {
-        if config_wins(scan_matches, "access_map") {
-            scan_args.access_map = v;
-        }
+    if let Some(v) = cfg.scan.access_map
+        && config_wins(scan_matches, "access_map")
+    {
+        scan_args.access_map = v;
     }
-    if let Some(v) = cfg.scan.rule_stats {
-        if config_wins(scan_matches, "rule_stats") {
-            scan_args.rule_stats = v;
-        }
+    if let Some(v) = cfg.scan.rule_stats
+        && config_wins(scan_matches, "rule_stats")
+    {
+        scan_args.rule_stats = v;
     }
-    if let Some(j) = cfg.scan.jobs {
-        if config_wins(scan_matches, "num_jobs") {
-            scan_args.num_jobs = j;
-        }
+    if let Some(j) = cfg.scan.jobs
+        && config_wins(scan_matches, "num_jobs")
+    {
+        scan_args.num_jobs = j;
     }
-    if let Some(t) = cfg.scan.git_repo_timeout {
-        if config_wins(scan_matches, "git_repo_timeout") {
-            scan_args.git_repo_timeout = t;
-        }
+    if let Some(t) = cfg.scan.git_repo_timeout
+        && config_wins(scan_matches, "git_repo_timeout")
+    {
+        scan_args.git_repo_timeout = t;
     }
 
     // ---------- rules ------------------------------------------------------
@@ -478,135 +474,147 @@ fn apply_config(
         }
     }
     scan_args.rules.rules_path.extend(cfg.rules.paths.iter().cloned());
-    if let Some(v) = cfg.rules.load_builtins {
-        if config_wins(scan_matches, "load_builtins") {
-            scan_args.rules.load_builtins = v;
-        }
+    if let Some(v) = cfg.rules.load_builtins
+        && config_wins(scan_matches, "load_builtins")
+    {
+        scan_args.rules.load_builtins = v;
+    }
+    if let Some(v) = cfg.rules.cache
+        && config_wins(scan_matches, "rule_cache")
+        && config_wins(scan_matches, "no_rule_cache")
+    {
+        scan_args.rule_cache.rule_cache = v;
+        scan_args.rule_cache.no_rule_cache = !v;
+    }
+    if let Some(path) = &cfg.rules.cache_dir
+        && config_wins(scan_matches, "rule_cache_dir")
+    {
+        scan_args.rule_cache.rule_cache_dir = Some(path.clone());
     }
 
     // ---------- validation -------------------------------------------------
-    if let Some(t) = cfg.validation.timeout {
-        if config_wins(scan_matches, "validation_timeout") {
-            scan_args.validation_timeout = t;
-        }
+    if let Some(t) = cfg.validation.timeout
+        && config_wins(scan_matches, "validation_timeout")
+    {
+        scan_args.validation_timeout = t;
     }
-    if let Some(r) = cfg.validation.retries {
-        if config_wins(scan_matches, "validation_retries") {
-            scan_args.validation_retries = r;
-        }
+    if let Some(r) = cfg.validation.retries
+        && config_wins(scan_matches, "validation_retries")
+    {
+        scan_args.validation_retries = r;
     }
-    if let Some(rps) = cfg.validation.rps {
-        if config_wins(scan_matches, "validation_rps") {
-            scan_args.validation_rps = Some(rps);
-        }
+    if let Some(rps) = cfg.validation.rps
+        && config_wins(scan_matches, "validation_rps")
+    {
+        scan_args.validation_rps = Some(rps);
     }
     for (rule, rps) in &cfg.validation.rps_per_rule {
         scan_args.validation_rps_rule.push(format!("{rule}={rps}"));
     }
-    if let Some(v) = cfg.validation.full_response {
-        if config_wins(scan_matches, "full_validation_response") {
-            scan_args.full_validation_response = v;
-        }
+    if let Some(v) = cfg.validation.full_response
+        && config_wins(scan_matches, "full_validation_response")
+    {
+        scan_args.full_validation_response = v;
     }
-    if let Some(n) = cfg.validation.max_response_length {
-        if config_wins(scan_matches, "max_validation_response_length") {
-            scan_args.max_validation_response_length = n;
-        }
+    if let Some(n) = cfg.validation.max_response_length
+        && config_wins(scan_matches, "max_validation_response_length")
+    {
+        scan_args.max_validation_response_length = n;
     }
 
     // ---------- filters (v2 scalars + extra additive lists) ----------------
-    if let Some(mb) = cfg.filters.max_file_size_mb {
-        if config_wins(scan_matches, "max_file_size_mb") {
-            scan_args.content_filtering_args.max_file_size_mb = mb;
-        }
+    if let Some(mb) = cfg.filters.max_file_size_mb
+        && config_wins(scan_matches, "max_file_size_mb")
+    {
+        scan_args.content_filtering_args.max_file_size_mb = mb;
     }
-    if let Some(v) = cfg.filters.no_binary {
-        if config_wins(scan_matches, "no_binary") {
-            scan_args.content_filtering_args.no_binary = v;
-        }
+    if let Some(v) = cfg.filters.no_binary
+        && config_wins(scan_matches, "no_binary")
+    {
+        scan_args.content_filtering_args.no_binary = v;
     }
-    if let Some(v) = cfg.filters.no_extract_archives {
-        if config_wins(scan_matches, "no_extract_archives") {
-            scan_args.content_filtering_args.no_extract_archives = v;
-        }
+    if let Some(v) = cfg.filters.no_extract_archives
+        && config_wins(scan_matches, "no_extract_archives")
+    {
+        scan_args.content_filtering_args.no_extract_archives = v;
     }
-    if let Some(d) = cfg.filters.extraction_depth {
-        if config_wins(scan_matches, "extraction_depth") {
-            scan_args.content_filtering_args.extraction_depth = d;
-        }
+    if let Some(d) = cfg.filters.extraction_depth
+        && config_wins(scan_matches, "extraction_depth")
+    {
+        scan_args.content_filtering_args.extraction_depth = d;
     }
-    if let Some(v) = cfg.filters.no_inline_ignore {
-        if config_wins(scan_matches, "no_inline_ignore") {
-            scan_args.no_inline_ignore = v;
-        }
+    if let Some(v) = cfg.filters.no_inline_ignore
+        && config_wins(scan_matches, "no_inline_ignore")
+    {
+        scan_args.no_inline_ignore = v;
     }
-    if let Some(v) = cfg.filters.no_ignore_if_contains {
-        if config_wins(scan_matches, "no_ignore_if_contains") {
-            scan_args.no_ignore_if_contains = v;
-        }
+    if let Some(v) = cfg.filters.no_ignore_if_contains
+        && config_wins(scan_matches, "no_ignore_if_contains")
+    {
+        scan_args.no_ignore_if_contains = v;
     }
     scan_args.extra_ignore_comments.extend(cfg.filters.extra_ignore_comments.iter().cloned());
     scan_args.skip_aws_account.extend(cfg.filters.skip_aws_accounts.iter().cloned());
-    if let Some(p) = &cfg.filters.skip_aws_account_file {
-        if config_wins(scan_matches, "skip_aws_account_file") {
-            scan_args.skip_aws_account_file = Some(p.clone());
-        }
+    if let Some(p) = &cfg.filters.skip_aws_account_file
+        && config_wins(scan_matches, "skip_aws_account_file")
+    {
+        scan_args.skip_aws_account_file = Some(p.clone());
     }
 
     // ---------- output -----------------------------------------------------
-    if let Some(f) = cfg.output.format {
-        if config_wins(scan_matches, "format") {
-            scan_args.output_args.format = f.into();
-        }
+    if let Some(f) = cfg.output.format
+        && config_wins(scan_matches, "format")
+    {
+        scan_args.output_args.format = f.into();
     }
-    if let Some(p) = &cfg.output.path {
-        if config_wins(scan_matches, "output") {
-            scan_args.output_args.output = Some(p.clone());
-        }
+    if let Some(p) = &cfg.output.path
+        && config_wins(scan_matches, "output")
+    {
+        scan_args.output_args.output = Some(p.clone());
     }
 
     // ---------- baseline ---------------------------------------------------
-    if let Some(p) = &cfg.baseline.file {
-        if config_wins(scan_matches, "baseline_file") {
-            scan_args.baseline_file = Some(p.clone());
-        }
+    if let Some(p) = &cfg.baseline.file
+        && config_wins(scan_matches, "baseline_file")
+    {
+        scan_args.baseline_file = Some(p.clone());
     }
-    if let Some(v) = cfg.baseline.manage {
-        if config_wins(scan_matches, "manage_baseline") {
-            scan_args.manage_baseline = v;
-        }
+    if let Some(v) = cfg.baseline.manage
+        && config_wins(scan_matches, "manage_baseline")
+    {
+        scan_args.manage_baseline = v;
     }
 
     // ---------- alerts.defaults: feed the global --alert-* fields ----------
-    if let Some(f) = cfg.alerts.defaults.format {
-        if config_wins(scan_matches, "alert_format") {
-            scan_args.alert_format = Some(f);
-        }
+    if let Some(f) = cfg.alerts.defaults.format
+        && config_wins(scan_matches, "alert_format")
+    {
+        scan_args.alert_format = Some(f);
     }
-    if let Some(o) = cfg.alerts.defaults.on {
-        if config_wins(scan_matches, "alert_on") {
-            scan_args.alert_on = o;
-        }
+    if let Some(o) = cfg.alerts.defaults.on
+        && config_wins(scan_matches, "alert_on")
+    {
+        scan_args.alert_on = o;
     }
-    if let Some(c) = cfg.alerts.defaults.min_confidence {
-        if config_wins(scan_matches, "alert_min_confidence") {
-            scan_args.alert_min_confidence = c.into();
-        }
+    if let Some(c) = cfg.alerts.defaults.min_confidence
+        && config_wins(scan_matches, "alert_min_confidence")
+    {
+        scan_args.alert_min_confidence = c.into();
     }
-    if let Some(v) = cfg.alerts.defaults.include_secret {
-        if config_wins(scan_matches, "alert_include_secret") {
-            scan_args.alert_include_secret = v;
-        }
+    if let Some(v) = cfg.alerts.defaults.include_secret
+        && config_wins(scan_matches, "alert_include_secret")
+    {
+        scan_args.alert_include_secret = v;
     }
-    if let Some(u) = &cfg.alerts.defaults.report_url {
-        if config_wins(scan_matches, "alert_report_url") {
-            scan_args.alert_report_url = Some(u.clone());
-        }
+    if let Some(u) = &cfg.alerts.defaults.report_url
+        && config_wins(scan_matches, "alert_report_url")
+    {
+        scan_args.alert_report_url = Some(u.clone());
     }
-    if let Some(d) = cfg.alerts.defaults.detail {
-        if config_wins(scan_matches, "alert_detail") {
-            scan_args.alert_detail = d;
-        }
+    if let Some(d) = cfg.alerts.defaults.detail
+        && config_wins(scan_matches, "alert_detail")
+    {
+        scan_args.alert_detail = d;
     }
 
     // ---------- alerts.webhooks: append URLs (existing v1 behavior) --------
@@ -625,56 +633,56 @@ fn apply_config(
     }
 
     // ---------- global -----------------------------------------------------
-    if let Some(m) = cfg.global.tls_mode {
-        if config_wins(scan_matches, "tls_mode") {
-            global_args.tls_mode = m.into();
-        }
+    if let Some(m) = cfg.global.tls_mode
+        && config_wins(scan_matches, "tls_mode")
+    {
+        global_args.tls_mode = m.into();
     }
-    if let Some(v) = cfg.global.allow_internal_ips {
-        if config_wins(scan_matches, "allow_internal_ips") {
-            global_args.allow_internal_ips = v;
-        }
+    if let Some(v) = cfg.global.allow_internal_ips
+        && config_wins(scan_matches, "allow_internal_ips")
+    {
+        global_args.allow_internal_ips = v;
     }
-    if let Some(v) = cfg.global.no_update_check {
-        if config_wins(scan_matches, "no_update_check") {
-            global_args.no_update_check = v;
-        }
+    if let Some(v) = cfg.global.no_update_check
+        && config_wins(scan_matches, "no_update_check")
+    {
+        global_args.no_update_check = v;
     }
-    if let Some(s) = &cfg.global.user_agent_suffix {
-        if config_wins(scan_matches, "user_agent_suffix") {
-            let trimmed = s.trim();
-            if !trimmed.is_empty() {
-                global_args.user_agent_suffix = Some(trimmed.to_string());
-            }
+    if let Some(s) = &cfg.global.user_agent_suffix
+        && config_wins(scan_matches, "user_agent_suffix")
+    {
+        let trimmed = s.trim();
+        if !trimmed.is_empty() {
+            global_args.user_agent_suffix = Some(trimmed.to_string());
         }
     }
     global_args.endpoint.extend(cfg.global.endpoints.iter().cloned());
-    if let Some(p) = &cfg.global.endpoint_config {
-        if config_wins(scan_matches, "endpoint_config") {
-            global_args.endpoint_config = Some(p.clone());
-        }
+    if let Some(p) = &cfg.global.endpoint_config
+        && config_wins(scan_matches, "endpoint_config")
+    {
+        global_args.endpoint_config = Some(p.clone());
     }
 
     // ---------- git --------------------------------------------------------
-    if let Some(p) = &cfg.git.clone_dir {
-        if config_wins(scan_matches, "git_clone_dir") {
-            scan_args.input_specifier_args.git_clone_dir = Some(p.clone());
-        }
+    if let Some(p) = &cfg.git.clone_dir
+        && config_wins(scan_matches, "git_clone_dir")
+    {
+        scan_args.input_specifier_args.git_clone_dir = Some(p.clone());
     }
-    if let Some(v) = cfg.git.keep_clones {
-        if config_wins(scan_matches, "keep_clones") {
-            scan_args.input_specifier_args.keep_clones = v;
-        }
+    if let Some(v) = cfg.git.keep_clones
+        && config_wins(scan_matches, "keep_clones")
+    {
+        scan_args.input_specifier_args.keep_clones = v;
     }
-    if let Some(n) = cfg.git.repo_clone_limit {
-        if config_wins(scan_matches, "repo_clone_limit") {
-            scan_args.input_specifier_args.repo_clone_limit = Some(n);
-        }
+    if let Some(n) = cfg.git.repo_clone_limit
+        && config_wins(scan_matches, "repo_clone_limit")
+    {
+        scan_args.input_specifier_args.repo_clone_limit = Some(n);
     }
-    if let Some(v) = cfg.git.include_contributors {
-        if config_wins(scan_matches, "include_contributors") {
-            scan_args.input_specifier_args.include_contributors = v;
-        }
+    if let Some(v) = cfg.git.include_contributors
+        && config_wins(scan_matches, "include_contributors")
+    {
+        scan_args.input_specifier_args.include_contributors = v;
     }
     // Provider API roots for enumeration / cloning. We accept the YAML value
     // as `String` (the schema serializer keeps it stable across `Url`'s
@@ -818,6 +826,15 @@ fn build_config_yaml(
     }
     if user_set(sub_matches, "load_builtins") {
         rules.load_builtins = Some(scan_args.rules.load_builtins);
+    }
+    if user_set(sub_matches, "rule_cache") {
+        rules.cache = Some(true);
+    }
+    if user_set(sub_matches, "no_rule_cache") {
+        rules.cache = Some(false);
+    }
+    if user_set(sub_matches, "rule_cache_dir") {
+        rules.cache_dir = scan_args.rule_cache.rule_cache_dir.clone();
     }
     cfg.rules = rules;
 
@@ -1367,7 +1384,7 @@ async fn async_main(args: CommandLineArgs, matches: clap::ArgMatches) -> Result<
                             std::io::stdin().read_to_end(&mut buf)?;
                             let stdin_file = temp_dir_path.join("stdin_input");
                             std::fs::write(&stdin_file, buf)?;
-                            scan_args.input_specifier_args.path_inputs = vec![stdin_file.into()];
+                            scan_args.input_specifier_args.path_inputs = vec![stdin_file];
                         }
 
                         let rules_db = Arc::new(load_and_record_rules(
@@ -1384,10 +1401,10 @@ async fn async_main(args: CommandLineArgs, matches: clap::ArgMatches) -> Result<
                             auto_cleanup_clones,
                         )
                         .await?;
-                        if update_status.is_outdated {
-                            if let Some(styled) = &update_status.styled_message {
-                                let _ = writeln!(std::io::stderr(), "{}", styled);
-                            }
+                        if update_status.is_outdated
+                            && let Some(styled) = &update_status.styled_message
+                        {
+                            let _ = writeln!(std::io::stderr(), "{}", styled);
                         }
                         let exit_code = determine_exit_code(&datastore);
 
@@ -1559,10 +1576,16 @@ async fn async_main(args: CommandLineArgs, matches: clap::ArgMatches) -> Result<
                 },
                 Command::Rules(ref rule_args) => match &rule_args.command {
                     RulesCommand::Check(check_args) => {
-                        run_rules_check(&check_args)?;
+                        run_rules_check(check_args)?;
+                    }
+                    RulesCommand::CompileCache(cache_args) => {
+                        run_rules_compile_cache(cache_args)?;
+                    }
+                    RulesCommand::PruneCache(prune_args) => {
+                        run_rules_prune_cache(prune_args)?;
                     }
                     RulesCommand::List(list_args) => {
-                        run_rules_list(&list_args)?;
+                        run_rules_list(list_args)?;
                     }
                 },
                 Command::View(_) => {
@@ -1602,6 +1625,7 @@ fn create_default_scan_args() -> cli::commands::scan::ScanArgs {
             rule: vec!["all".into()],
             load_builtins: true,
         },
+        rule_cache: RuleCacheArgs::default(),
         input_specifier_args: InputSpecifierArgs {
             path_inputs: Vec::new(),
             git_url: Vec::new(),
@@ -1745,6 +1769,52 @@ fn create_default_scan_args() -> cli::commands::scan::ScanArgs {
         config_webhook_overrides: Vec::new(),
     }
 }
+/// Run the rules compile-cache command
+pub fn run_rules_compile_cache(args: &RulesCompileCacheArgs) -> Result<()> {
+    let mut scan_args = create_default_scan_args();
+    scan_args.confidence = args.confidence;
+
+    let loader = RuleLoader::from_rule_specifiers(&args.rules);
+    let loaded = loader.load(&scan_args).context("Failed to load rules")?;
+    let resolved = loaded.resolve_enabled_rules().context("Failed to resolve rules")?;
+    let cache = RuleCacheConfig::from_dir_or_env(args.cache.rule_cache_dir.clone());
+    info!(cache_dir = %cache.cache_dir().display(), "Using Vectorscan rule cache");
+    let rules_db =
+        RulesDatabase::from_rules_with_cache(resolved.into_iter().cloned().collect(), &cache)
+            .context("Failed to compile rules with Vectorscan cache")?;
+
+    println!("Rule cache ready: {} rules in {}", rules_db.num_rules(), cache.cache_dir().display());
+    Ok(())
+}
+
+/// Run the rules prune-cache command
+pub fn run_rules_prune_cache(args: &RuleCachePruneArgs) -> Result<()> {
+    let cache = RuleCacheConfig::from_dir_or_env(args.cache.rule_cache_dir.clone());
+    let summary = prune_rule_cache(
+        &cache,
+        &RuleCachePruneConfig {
+            max_entries: args.max_entries,
+            max_age: args.max_age,
+            protected_cache_key: None,
+            dry_run: args.dry_run,
+        },
+    );
+
+    let action = if args.dry_run { "would remove" } else { "removed" };
+    println!(
+        "Rule cache prune {action} {} entries ({} bytes) from {}; scanned {} entries, {} valid, {} invalid, {} protected, {} removal errors",
+        if args.dry_run { summary.candidate_entries } else { summary.removed_entries },
+        if args.dry_run { summary.candidate_bytes } else { summary.removed_bytes },
+        cache.cache_dir().display(),
+        summary.scanned_entries,
+        summary.valid_entries,
+        summary.invalid_entries,
+        summary.protected_entries,
+        summary.removal_errors
+    );
+    Ok(())
+}
+
 /// Run the rules check command
 pub fn run_rules_check(args: &RulesCheckArgs) -> Result<()> {
     let mut num_errors = 0;
@@ -1935,8 +2005,7 @@ pub fn run_rules_list(args: &RulesListArgs) -> Result<()> {
             // Format pattern on a single line
             let format_pattern = |pattern: &str| {
                 let single_line = pattern
-                    .replace('\n', " ")
-                    .replace('\r', " ")
+                    .replace(['\n', '\r'], " ")
                     .split_whitespace()
                     .collect::<Vec<_>>()
                     .join(" ");
@@ -2156,6 +2225,63 @@ rules:
             matches.subcommand_matches("scan"),
         );
         assert_eq!(scan_args.rules.rule, vec!["custom".to_string()]);
+    }
+
+    #[test]
+    fn rule_cache_config_and_cli_precedence_respects_opt_out() {
+        let cfg = parse_str(
+            r#"
+rules:
+  cache: false
+"#,
+        )
+        .unwrap();
+        let (args, matches) = parse(&["kingfisher", "scan", "."]);
+        let mut global_args = args.global_args.clone();
+        let mut scan_args = into_scan(args);
+        super::apply_config(
+            &mut scan_args,
+            &mut global_args,
+            &cfg,
+            matches.subcommand_matches("scan"),
+        );
+        assert!(!scan_args.rule_cache.enabled(), "config rules.cache=false should disable cache");
+
+        let cfg = parse_str(
+            r#"
+rules:
+  cache: true
+"#,
+        )
+        .unwrap();
+        let (args, matches) = parse(&["kingfisher", "scan", "--no-rule-cache", "."]);
+        let mut global_args = args.global_args.clone();
+        let mut scan_args = into_scan(args);
+        super::apply_config(
+            &mut scan_args,
+            &mut global_args,
+            &cfg,
+            matches.subcommand_matches("scan"),
+        );
+        assert!(!scan_args.rule_cache.enabled(), "CLI --no-rule-cache should beat config");
+
+        let cfg = parse_str(
+            r#"
+rules:
+  cache: false
+"#,
+        )
+        .unwrap();
+        let (args, matches) = parse(&["kingfisher", "scan", "--rule-cache", "."]);
+        let mut global_args = args.global_args.clone();
+        let mut scan_args = into_scan(args);
+        super::apply_config(
+            &mut scan_args,
+            &mut global_args,
+            &cfg,
+            matches.subcommand_matches("scan"),
+        );
+        assert!(scan_args.rule_cache.enabled(), "CLI --rule-cache should beat config");
     }
 
     #[test]

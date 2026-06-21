@@ -57,7 +57,7 @@ mod tests {
     use super::*;
     use crate::cli::commands::github::GitCloneMode;
     use crate::cli::commands::github::GitHistoryMode;
-    use crate::cli::commands::rules::RuleSpecifierArgs;
+    use crate::cli::commands::rules::{RuleCacheArgs, RuleSpecifierArgs};
     use crate::matcher::{SerializableCapture, SerializableCaptures};
     use crate::rules::rule::{Confidence, Rule, RuleSyntax};
     use crate::util::intern;
@@ -97,6 +97,7 @@ mod tests {
                 rule: vec!["all".into()],
                 load_builtins: true,
             },
+            rule_cache: RuleCacheArgs::default(),
             input_specifier_args: InputSpecifierArgs {
                 // local path / git URL inputs
                 path_inputs: Vec::new(),
@@ -280,7 +281,7 @@ mod tests {
                 }],
             },
             blob_id: BlobId::new(b"mock_blob"),
-            finding_fingerprint: 0123,
+            finding_fingerprint: 123,
             rule,
             validation_response_body: validation_body::from_string("validation response"),
             validation_response_status: 200,

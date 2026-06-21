@@ -153,6 +153,8 @@ rules:
   paths:                        # list, additive                 (--rules-path)
     - ./custom-rules/
   load_builtins: true           # bool                           (--load-builtins)
+  cache: true                   # bool, default true             (--no-rule-cache disables)
+  cache_dir: ./.kingfisher-cache # optional path                 (--rule-cache-dir, KF_RULE_CACHE_DIR)
 
 validation:
   timeout: 10                   # seconds, 1..=60                (--validation-timeout)
@@ -227,6 +229,8 @@ git:
 
 Unknown fields are rejected (typo protection). Empty sections and a missing
 top-level file are both fine.
+
+Rule cache pruning is intentionally CLI-only. Use `kingfisher rules prune-cache` for manual cleanup, or pass `--prune-rule-cache` with optional `--rule-cache-max-entries` and `--rule-cache-max-age` thresholds on scans.
 
 ## Example: CI workflow
 

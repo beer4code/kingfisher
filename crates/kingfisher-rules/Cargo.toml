@@ -62,4 +62,4 @@ include_dir.workspace = true
 
 [dev-dependencies]
 pretty_assertions = "1.4"
-proptest = "1.6"
+proptest = "1.11"

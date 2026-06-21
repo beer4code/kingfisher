@@ -1,5 +1,4 @@
 use kingfisher::{cli::global::GlobalArgs, update::check_for_update};
-use tokio;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{method, path},

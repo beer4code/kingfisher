@@ -20,7 +20,7 @@ use crate::{
             huggingface::HuggingFaceRepoSpecifiers,
             inputs::{ContentFilteringArgs, InputSpecifierArgs},
             output::{OutputArgs, ReportOutputFormat},
-            rules::RuleSpecifierArgs,
+            rules::{RuleCacheArgs, RuleSpecifierArgs},
             view,
         },
         global::RAM_GB,
@@ -72,6 +72,9 @@ pub struct ScanArgs {
 
     #[command(flatten)]
     pub rules: RuleSpecifierArgs,
+
+    #[command(flatten)]
+    pub rule_cache: RuleCacheArgs,
 
     #[command(flatten)]
     pub input_specifier_args: InputSpecifierArgs,
@@ -345,6 +348,7 @@ pub struct ScanCommandArgs {
     pub provider: Option<ScanInputCommand>,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum ScanOperation {
     Scan(ScanArgs),

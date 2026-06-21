@@ -19,7 +19,7 @@ use kingfisher::{
             gitlab::GitLabRepoType,
             inputs::{ContentFilteringArgs, InputSpecifierArgs},
             output::{OutputArgs, ReportOutputFormat},
-            rules::RuleSpecifierArgs,
+            rules::{RuleCacheArgs, RuleSpecifierArgs},
             scan::{ConfidenceLevel, ScanArgs},
         },
         global::{Mode, TlsMode},
@@ -68,6 +68,7 @@ rules:
             rule: vec!["all".into()],
             load_builtins: false,
         },
+        rule_cache: RuleCacheArgs::default(),
         input_specifier_args: InputSpecifierArgs {
             path_inputs: vec![inputs_dir.join("a.txt"), inputs_dir.join("b.txt")],
             git_url: Vec::new(),
@@ -244,8 +245,7 @@ rules:
         false,
     ))?;
 
-    let x = Ok(datastore.lock().unwrap().get_matches().len());
-    x
+    Ok(datastore.lock().unwrap().get_matches().len())
 }
 
 #[test]

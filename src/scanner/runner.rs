@@ -28,7 +28,10 @@ use crate::{
     rule_loader::RuleLoader,
     rule_profiling::ConcurrentRuleProfiler,
     rules::rule::Validation,
-    rules_database::RulesDatabase,
+    rules_database::{
+        RuleCacheConfig, RuleCachePruneConfig, RulesDatabase, compute_rule_cache_key,
+        prune_rule_cache,
+    },
     safe_list,
     scanner::{
         AccessMapCollector, clone_or_update_git_repos_streaming, enumerate_azure_repos,
@@ -639,7 +642,6 @@ fn effective_max_validation_body_len(args: &scan::ScanArgs) -> usize {
 }
 
 /// Runs the validation phase on matches in the datastore.
-#[expect(clippy::too_many_arguments)]
 async fn run_validation_phase(
     datastore: &Arc<Mutex<FindingsStore>>,
     validation_deps: &Option<ValidationDeps>,
@@ -703,7 +705,7 @@ async fn run_sequential_scan(
     // continue cloning into `/tmp` after the scan has already failed.
     let scan_result: Result<()> = (|| {
         if !input_roots.is_empty() {
-            let _inputs = enumerate_filesystem_inputs(
+            enumerate_filesystem_inputs(
                 args,
                 datastore.clone(),
                 input_roots,
@@ -719,7 +721,7 @@ async fn run_sequential_scan(
             enumerate_filesystem_inputs(
                 args,
                 datastore.clone(),
-                &[repo_root.clone()],
+                std::slice::from_ref(&repo_root),
                 progress_enabled,
                 rules_db,
                 enable_profiling,
@@ -1026,7 +1028,7 @@ async fn run_parallel_scan(
                         enumerate_filesystem_inputs(
                             &args,
                             Arc::clone(&repo_datastore),
-                            &[root.clone()],
+                            std::slice::from_ref(&root),
                             progress_enabled,
                             rules_db,
                             enable_profiling,
@@ -1043,7 +1045,7 @@ async fn run_parallel_scan(
                                 &mut ds,
                                 baseline_path.as_ref(),
                                 args.manage_baseline,
-                                &[root.clone()],
+                                std::slice::from_ref(&root),
                             )?;
                         }
 
@@ -1210,7 +1212,7 @@ async fn run_parallel_scan(
     let aggregate_summary = if ran_repo_scan.load(Ordering::Relaxed) {
         let totals = compute_scan_totals(datastore, args, matcher_stats.as_ref());
         let mut sorted: Vec<_> = datastore.lock().unwrap().get_summary().into_iter().collect();
-        sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted.sort_by_key(|b| std::cmp::Reverse(b.1));
         Some((totals, sorted))
     } else {
         None
@@ -1455,7 +1457,7 @@ pub fn load_and_record_rules(
             .context("Failed to load rules")?;
         let resolved = loaded.resolve_enabled_rules().context("Failed to resolve rules")?;
         // Apply min_entropy override if specified
-        let rules = resolved
+        let rules: Vec<_> = resolved
             .into_iter()
             .cloned()
             .map(|mut rule| {
@@ -1465,12 +1467,37 @@ pub fn load_and_record_rules(
                 rule
             })
             .collect();
-        RulesDatabase::from_rules(rules).context("Failed to compile rules")?
+        if args.rule_cache.enabled() {
+            let cache = RuleCacheConfig::from_dir_or_env(args.rule_cache.rule_cache_dir.clone());
+            info!(cache_dir = %cache.cache_dir().display(), "Using Vectorscan rule cache");
+            if args.rule_cache.prune_rule_cache {
+                let protected_cache_key = compute_rule_cache_key(&rules);
+                let summary = prune_rule_cache(
+                    &cache,
+                    &RuleCachePruneConfig {
+                        max_entries: args.rule_cache.rule_cache_max_entries,
+                        max_age: args.rule_cache.rule_cache_max_age,
+                        protected_cache_key: Some(protected_cache_key),
+                        dry_run: false,
+                    },
+                );
+                info!(
+                    cache_dir = %cache.cache_dir().display(),
+                    scanned_entries = summary.scanned_entries,
+                    valid_entries = summary.valid_entries,
+                    removed_entries = summary.removed_entries,
+                    removed_bytes = summary.removed_bytes,
+                    removal_errors = summary.removal_errors,
+                    "Pruned Vectorscan rule cache"
+                );
+            }
+            RulesDatabase::from_rules_with_cache(rules, &cache)
+                .context("Failed to compile rules with Vectorscan cache")?
+        } else {
+            RulesDatabase::from_rules(rules).context("Failed to compile rules")?
+        }
     };
     init_progress.set_message("Recording rules...");
-    datastore
-        .lock()
-        .unwrap()
-        .record_rules(rules_db.rules().iter().cloned().collect::<Vec<_>>().as_slice());
+    datastore.lock().unwrap().record_rules(rules_db.rules());
     Ok(rules_db)
 }
