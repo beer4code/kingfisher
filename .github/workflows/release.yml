@@ -21,6 +21,9 @@ env:
   VCPKG_DOWNLOADS: C:\vcpkg\downloads
   VCPKG_FEATURE_FLAGS: binarycaching
   VCPKG_BINARY_SOURCES: clear;x-gha,readwrite
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
   RUST_TOOLCHAIN: "1.96.0"
 
 jobs:
@@ -63,11 +66,17 @@ jobs:
         run: make tests
         env:
           CARGO_BUILD_JOBS: 1
+
+      - name: Reclaim test artifacts
+        run: |
+          rm -rf target/debug
+          df -h
+
       - name: Build (Makefile linux-x64)
         run: make ubuntu-x64
 
       - name: Fix permissions
-        run: sudo chown -R $(id -u):$(id -g) target
+        run: sudo chown -R "$(id -u):$(id -g)" target
 
       - name: Build Debian package
         run: |
@@ -138,11 +147,17 @@ jobs:
         run: make tests
         env:
           CARGO_BUILD_JOBS: 1
+
+      - name: Reclaim test artifacts
+        run: |
+          rm -rf target/debug
+          df -h
+
       - name: Build (Makefile linux-arm64)
         run: make ubuntu-arm64
 
       - name: Fix permissions
-        run: sudo chown -R $(id -u):$(id -g) target
+        run: sudo chown -R "$(id -u):$(id -g)" target
 
       - name: Build Debian package
         run: |
