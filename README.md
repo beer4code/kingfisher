@@ -250,11 +250,13 @@ Add `--include-comments` and/or `--include-changelog` to expand the scan beyond 
 KF_CONFLUENCE_TOKEN="token" kingfisher scan confluence --url https://confluence.company.com --cql "label = secret"
 ```
 
-### 17: Scan Slack messages
+### 17: Scan Slack messages and files
 
 ```bash
 KF_SLACK_TOKEN="xoxp-..." kingfisher scan slack "api_key OR password"
 ```
+
+Slack file downloads require the `files:read` scope in addition to `search:read`.
 
 ### 18: Run with Docker (no install required)
 
@@ -722,7 +724,7 @@ KF_JIRA_TOKEN="token" kingfisher scan jira --url https://jira.company.com \
 KF_CONFLUENCE_TOKEN="token" kingfisher scan confluence --url https://confluence.company.com \
   --cql "label = secret"
 
-# Scan Slack messages
+# Scan Slack messages and files
 KF_SLACK_TOKEN="xoxp-..." kingfisher scan slack "from:username has:link"
 
 # Scan Microsoft Teams messages

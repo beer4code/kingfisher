@@ -284,7 +284,7 @@ pub struct InputSpecifierArgs {
     #[arg(long, requires = "confluence_url", hide = true)]
     pub cql: Option<String>,
 
-    /// Slack search query
+    /// Slack search query to apply to messages and files
     #[arg(long, hide = true)]
     pub slack_query: Option<String>,
 

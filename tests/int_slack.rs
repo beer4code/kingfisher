@@ -207,6 +207,31 @@ async fn test_scan_slack_messages() -> Result<()> {
         .respond_with(ResponseTemplate::new(200).set_body_json(response))
         .mount(&server)
         .await;
+    let file_response = serde_json::json!({
+        "ok": true,
+        "files": {
+            "matches": [{
+                "id": "F123",
+                "name": "credentials.txt",
+                "title": "credentials.txt",
+                "permalink": "https://example.slack.com/files/U123/F123/credentials.txt",
+                "url_private_download": format!("{}/files/F123/download", server.uri())
+            }],
+            "pagination": {"page": 1, "page_count": 1}
+        }
+    });
+    Mock::given(method("GET"))
+        .and(path("/search.files"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(file_response))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/files/F123/download"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            "This file contains a github token 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",
+        ))
+        .mount(&server)
+        .await;
 
     // TODO: Audit that the environment access only happens in single-threaded code.
     unsafe { env::set_var("KF_SLACK_TOKEN", "xoxp-test") };
@@ -372,7 +397,7 @@ async fn test_scan_slack_messages() -> Result<()> {
         config: None,
     };
 
-    let datastore = Arc::new(Mutex::new(FindingsStore::new(clone_dir)));
+    let datastore = Arc::new(Mutex::new(FindingsStore::new(clone_dir.clone())));
     let update_status = UpdateStatus::default();
 
     run_async_scan(
@@ -385,10 +410,14 @@ async fn test_scan_slack_messages() -> Result<()> {
     )
     .await?;
 
-    let findings = {
+    let (findings, scanned_slack_file) = {
         let ds = datastore.lock().unwrap();
-        ds.get_matches().len()
+        (
+            ds.get_matches().len(),
+            ds.slack_links().keys().any(|path| path.starts_with(clone_dir.join("slack_files"))),
+        )
     };
-    assert!(findings > 0);
+    assert!(findings >= 2);
+    assert!(scanned_slack_file);
     Ok(())
 }

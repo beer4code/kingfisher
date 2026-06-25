@@ -736,7 +736,7 @@ pub enum ScanInputCommand {
     /// Enumerate and scan Hugging Face repositories and buckets
     Huggingface(HuggingfaceScanArgs),
 
-    /// Scan Slack search results
+    /// Scan Slack messages and files matching a search query
     Slack(SlackScanArgs),
 
     /// Scan Microsoft Teams messages via Microsoft Graph
@@ -895,7 +895,7 @@ pub struct HuggingfaceScanArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct SlackScanArgs {
-    /// Slack search query
+    /// Slack search query to apply to messages and files
     #[arg(value_name = "QUERY")]
     pub query: String,
 
@@ -908,7 +908,7 @@ pub struct SlackScanArgs {
     )]
     pub api_url: Url,
 
-    /// Maximum number of results to fetch
+    /// Maximum number of message results and file results to fetch
     #[arg(long = "max-results", default_value_t = 100)]
     pub max_results: usize,
 }

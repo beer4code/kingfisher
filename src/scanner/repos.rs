@@ -844,22 +844,31 @@ pub async fn fetch_slack_messages(
         let ds = datastore.lock().unwrap();
         ds.clone_root()
     };
-    let output_dir = output_root.join("slack_messages");
-    let paths = slack::download_messages_to_dir(
+    let message_output_dir = output_root.join("slack_messages");
+    let message_paths = slack::download_messages_to_dir(
+        api_url.clone(),
+        query,
+        max_results,
+        global_args.ignore_certs,
+        &message_output_dir,
+    )
+    .await?;
+    let file_output_dir = output_root.join("slack_files");
+    let file_paths = slack::download_files_to_dir(
         api_url,
         query,
         max_results,
         global_args.ignore_certs,
-        &output_dir,
+        &file_output_dir,
     )
     .await?;
     {
         let mut ds = datastore.lock().unwrap();
-        for (path, link) in &paths {
+        for (path, link) in message_paths.iter().chain(&file_paths) {
             ds.register_slack_message(path.clone(), link.clone());
         }
     }
-    Ok(vec![output_dir])
+    Ok(vec![message_output_dir, file_output_dir])
 }
 
 pub async fn fetch_postman_resources(

@@ -708,8 +708,8 @@ impl DetailsReporter {
         ds.confluence_links().get(path).cloned()
     }
 
-    /// If the given file path corresponds to a Slack message downloaded to disk,
-    /// return the permalink for that message.
+    /// If the given path corresponds to a Slack message or file downloaded to disk,
+    /// return its permalink.
     fn slack_message_url(&self, path: &std::path::Path) -> Option<String> {
         let ds = self.datastore.lock().ok()?;
         ds.slack_links().get(path).cloned()

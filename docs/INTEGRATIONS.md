@@ -743,7 +743,7 @@ To use basic authentication instead, also set `KF_CONFLUENCE_USER` to your Confl
 
 ## Slack
 
-### Scan Slack messages matching a search query
+### Scan Slack messages and files matching a search query
 
 ```bash
 KF_SLACK_TOKEN="<your-slack-user-token>" kingfisher scan slack "from:username has:link" \
@@ -753,7 +753,10 @@ KF_SLACK_TOKEN="<your-slack-user-token>" kingfisher scan slack "akia" \
     --max-results 1000
 ```
 
-*The Slack token must be a user token with the `search:read` scope. Bot tokens (those beginning with `xoxb-`) cannot call the Slack search API.*
+Kingfisher applies the query to both Slack message search and file search, then downloads matching
+files that Slack exposes through an authenticated private URL. `--max-results` applies separately to
+messages and files. The token must be a user token with the `search:read` and `files:read` scopes.
+Bot tokens (those beginning with `xoxb-`) cannot call the Slack search API.
 
 ## Microsoft Teams
 
