@@ -1,13 +1,13 @@
 ---
 title: "Built-in Rules List"
-description: "Complete list of all 954 built-in secret detection rules in Kingfisher. Searchable and filterable by provider, confidence level, and validation support."
+description: "Complete list of all 958 built-in secret detection rules in Kingfisher. Searchable and filterable by provider, confidence level, and validation support."
 ---
 
 # Built-in Rules
 
-Kingfisher ships with **954 detection rules** across **584 providers**
-(830 detectors + 124 dependent rules).
-Of these, **489** include live validation and **50** support direct revocation.
+Kingfisher ships with **958 detection rules** across **584 providers**
+(832 detectors + 126 dependent rules).
+Of these, **490** include live validation and **50** support direct revocation.
 
 !!! tip "Search"
     Use the search box below to filter rules by provider name, rule ID, or confidence level.
@@ -629,6 +629,14 @@ Of these, **489** include live validation and **50** support direct revocation.
 </tr>
 <tr>
 <td>Azure</td>
+<td>Microsoft Entra or Azure OAuth2 Access Token</td>
+<td><code>kingfisher.azure.10</code></td>
+<td>Medium</td>
+<td>Yes</td>
+<td></td>
+</tr>
+<tr>
+<td>Azure</td>
 <td>Azure App Configuration Connection String</td>
 <td><code>kingfisher.azure.2</code></td>
 <td>Medium</td>
@@ -664,7 +672,31 @@ Of these, **489** include live validation and **50** support direct revocation.
 <td>Azure AD Client Secret (Microsoft Entra ID)</td>
 <td><code>kingfisher.azure.6</code></td>
 <td>Medium</td>
+<td>Yes</td>
 <td></td>
+</tr>
+<tr>
+<td>Azure</td>
+<td>Microsoft Entra Tenant ID</td>
+<td><code>kingfisher.azure.7</code></td>
+<td>Medium</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>Azure</td>
+<td>Microsoft Entra Application Client ID</td>
+<td><code>kingfisher.azure.8</code></td>
+<td>Medium</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>Azure</td>
+<td>Microsoft Entra Contextual Client Secret</td>
+<td><code>kingfisher.azure.9</code></td>
+<td>Medium</td>
+<td>Yes</td>
 <td></td>
 </tr>
 <tr>
