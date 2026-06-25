@@ -100,7 +100,7 @@ The HTML audit report is standalone and includes scan metadata designed for evid
 
 Finding a leaked credential is only the first step. The critical question isn't just "Is this a secret?"—it's "What can an attacker do with it?"
 
-Kingfisher's `--access-map` feature transforms secret detection from a simple alert into a comprehensive threat assessment. Instead of leaving you with a cryptic API key, Kingfisher actively authenticates against your cloud provider (AWS, GCP, Azure Storage, Azure DevOps, GitHub, GitLab, Slack, or Microsoft Teams) to map the full extent of the credential's power. 
+Kingfisher's `--access-map` feature transforms secret detection from a simple alert into a comprehensive threat assessment. Instead of leaving you with a cryptic API key, Kingfisher actively authenticates against your cloud provider (AWS, GCP, Azure Storage, Microsoft Entra ID and Graph, Azure RBAC, Azure DevOps, GitHub, GitLab, Slack, or Microsoft Teams) to map the full extent of the credential's power.
 
 * Instant Identity Resolution: Immediately identify who the key belongs to—whether it's a specific IAM user, an assumed role, or a service account.
 * Visualize the Blast Radius: See exactly which resources (S3 buckets, EC2 instances, projects, storage containers) are exposed and at risk.
@@ -170,7 +170,7 @@ Raw JSON output from Kingfisher, Gitleaks, and TruffleHog is excellent input for
 - **Cross-tool triage in one UI** — import a Gitleaks scan, a TruffleHog scan, and a Kingfisher scan of the same codebase into the same session and look at them side-by-side with deduplication, instead of reconciling three different schemas.
 - **Clear "this is live" signals** — validated Kingfisher findings and TruffleHog-verified findings are surfaced as active credentials so you rotate real keys first; unverified/static matches are marked as not attempted rather than active or inactive.
 - **Fingerprint-aware deduplication** — the same secret appearing across multiple reports, directories, or scan runs collapses to one entry.
-- **Blast-radius context** — when a Kingfisher report was produced with `--access-map`, the viewer renders the identity, permissions, and resources the leaked credential actually reaches, so you can tell apart a test token from a production admin key.
+- **Blast-radius context** — when a Kingfisher report was produced with `--access-map`, the viewer opens an interactive access-map graph and inspector so you can trace the identity, reachable resources, and permission mix without digging through nested JSON.
 - **A shareable, offline-friendly workbench** — runs locally via `kingfisher view` or via the hosted static page; nothing about the report is exfiltrated.
 
 Gitleaks and TruffleHog are great at surfacing candidate matches. Kingfisher's viewer turns their candidates (and its own) into a triageable workflow without changing the scanner you already use.
@@ -694,6 +694,7 @@ kingfisher scan docker some-private-registry.dkr.ecr.us-east-1.amazonaws.com/bas
 kingfisher scan docker private.registry.example.com/my-image:tag
 
 # 4) Scan a Docker image archive created by docker save:
+docker pull ghcr.io/owasp/wrongsecrets/wrongsecrets-master:latest-master
 docker save ghcr.io/owasp/wrongsecrets/wrongsecrets-master:latest-master -o image.tar
 kingfisher scan docker --archive image.tar
 gzip -k image.tar
@@ -809,6 +810,13 @@ kingfisher revoke --rule github \
 > discovered tokens. They are usually the same host, but they're separate
 > flags because some deployments front-load auth (an SSO portal for repo
 > access vs. a direct API endpoint for token validation).
+
+> **Token scoping.** `KF_GITHUB_TOKEN` is installed as a host-scoped,
+> HTTPS-only git credential helper, so it is sent only to `github.com` and
+> to the GHE host(s) you name in `--github-api-url` / `--endpoint github=…`.
+> An untrusted clone target — or a plaintext `http://` remote — never
+> receives the token. The same scoping applies to the GitLab, Gitea, Azure,
+> and Hugging Face clone tokens and their corresponding API-URL flags.
 
 ---
 

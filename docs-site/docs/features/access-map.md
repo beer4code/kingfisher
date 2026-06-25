@@ -19,6 +19,11 @@ There are two ways to produce access maps:
   and `--output <PATH>` if you prefer writing directly instead of using shell
   redirection.
 
+The HTML access-map viewer is built for triage: it starts in a topology view,
+groups identities by provider, lets you click through to individual resources,
+and keeps the detailed permissions in a side inspector. That makes it easier
+to compare two credentials at a glance without reading nested JSON by hand.
+
 > Access mapping runs additional network requests. Only use it when you are authorized to inspect the target account/workspace.
 
 ## How Access Map Works
@@ -135,6 +140,7 @@ kingfisher access-map slack ./slack.token --format json > slack.access-map.json
     - `aws_access_key_id` or `access_key_id`
     - `aws_secret_access_key` or `secret_access_key`
     - optional `aws_session_token` or `session_token`
+    - optional shell-style `export` prefixes and quoted values
 
 #### Standalone examples (AWS)
 
@@ -160,7 +166,9 @@ EOF
 kingfisher access-map aws ./aws.env --format json > aws.access-map.json
 ```
 
-Kingfisher performs read-only enumeration for the IAM principal and, when allowed by the credential, visible resources in several common AWS services including S3, EC2, IAM, Lambda, DynamoDB, KMS, Secrets Manager, SQS, SNS, RDS, ECR, and SSM Parameter Store.
+Kingfisher performs read-only enumeration for the IAM principal and, when allowed by the credential, visible resources in several common AWS services including S3, EC2, IAM, Lambda, DynamoDB, KMS, Secrets Manager, SQS, SNS, RDS, ECR, and SSM Parameter Store. Enumeration follows paginated API responses, and IAM users include permissions inherited from IAM groups.
+
+IAM policy summaries are intentionally conservative: explicit denies, `NotAction`, resource scoping, and conditions are called out in risk notes because a flat action list cannot fully reproduce AWS policy evaluation. Global services are mapped account-wide; regional services use the region selected by the AWS SDK configuration.
 
 ### Alibaba Cloud (`alibaba` / `aliyun`)
 
@@ -211,11 +219,24 @@ Kingfisher resolves the Alibaba Cloud caller identity with `sts:GetCallerIdentit
 kingfisher access-map gcp ./service-account.json --format json > gcp.access-map.json
 ```
 
-### Azure Storage (`azure`)
+### Microsoft Azure, Entra ID, and Microsoft Graph (`azure`)
 
-- **Credential**: a JSON file containing:
-  - `storage_account` (string)
-  - `storage_key` (string, base64-encoded account key as provided by Azure)
+The Azure mapper supports three credential families:
+
+- **Azure Storage account key**:
+  - `storage_account`
+  - `storage_key` (base64-encoded account key)
+- **Microsoft Entra application / service-principal credentials**:
+  - `tenant_id`, `client_id`, and `client_secret`
+  - Azure CLI aliases are accepted: `tenant`, `appId`, and `password`
+  - Azure SDK/environment aliases such as `AZURE_TENANT_ID`,
+    `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET` are also accepted in
+    `KEY=VALUE` files
+- **Existing OAuth2 access tokens**:
+  - `graph_access_token` for Microsoft Graph
+  - `management_access_token` or `arm_access_token` for Azure Resource Manager
+  - `access_token` for a single token; Kingfisher uses the JWT audience to
+    distinguish Azure Resource Manager from Microsoft Graph when possible
 
 #### Standalone example (Azure Storage)
 
@@ -231,6 +252,64 @@ kingfisher access-map azure ./azure-storage.json --format json > azure.access-ma
 ```
 
 Kingfisher treats the account key as full-control Storage credentials and performs best-effort enumeration across Blob containers, File shares, and Queue resources reachable with that key.
+
+#### Standalone example (Microsoft Entra client credentials)
+
+```bash
+cat > ./azure-entra.json <<'EOF'
+{
+  "tenant_id": "11111111-2222-4333-8444-555555555555",
+  "client_id": "12345678-90ab-4cde-8f01-234567890abc",
+  "client_secret": "..."
+}
+EOF
+
+kingfisher access-map azure ./azure-entra.json --format json > azure.access-map.json
+```
+
+For Entra client credentials, Kingfisher requests separate read-only access
+tokens for Microsoft Graph and Azure Resource Manager using each resource's
+`/.default` scope. It then performs best-effort mapping of:
+
+- the Entra user or service principal and tenant;
+- Graph application permissions or delegated scopes carried by the token;
+- transitive Entra group and directory-role membership when allowed;
+- visible Azure subscriptions and resource groups;
+- direct Azure RBAC assignments, group-inherited assignments when Entra group
+  membership is visible, and their role definitions.
+
+Graph and Azure Resource Manager permission failures are recorded as partial
+results instead of discarding identity or token-claim context that was already
+resolved. Enumeration is capped to avoid unbounded traversal in very large
+enterprise tenants.
+
+#### Existing OAuth2 token example
+
+```bash
+cat > ./azure-token.json <<'EOF'
+{
+  "graph_access_token": "eyJ...",
+  "management_access_token": "eyJ..."
+}
+EOF
+
+kingfisher access-map azure ./azure-token.json --format json
+```
+
+A single access token only maps the API audience for which it was issued.
+Supplying both Graph and management tokens gives the broadest view. Kingfisher
+decodes JWT claims for mapping hints, but API calls remain the source of truth;
+Microsoft access-token formats are not guaranteed to remain readable JWTs.
+
+#### Sovereign and private endpoint overrides
+
+Credential documents may set `authority_host`, `graph_base_url`, and
+`management_base_url` for Microsoft national clouds or authorized test/private
+endpoints. Keep all three values aligned with the target cloud.
+
+During scanning, validated Entra client secrets detected with their tenant and
+client IDs, plus Azure-context OAuth2 JWTs, can automatically feed
+`scan --access-map`.
 
 ### Azure DevOps (scan `--access-map` only)
 

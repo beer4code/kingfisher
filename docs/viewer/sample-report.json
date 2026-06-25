@@ -68,16 +68,49 @@
     {
       "provider": "aws",
       "account": "prod",
+      "fingerprint": "17034522315778178539",
+      "context": {
+        "identity_id": "arn:aws:iam::123456789012:user/deploy-bot",
+        "account_id": "123456789012",
+        "access_type": "iam_user"
+      },
+      "permissions_by_severity": {
+        "admin": [],
+        "privilege_escalation": ["iam:AssumeRole"],
+        "risky": ["s3:GetObject"],
+        "read_only": ["s3:ListBucket"]
+      },
       "groups": [
-        { "resources": ["arn:aws:s3:::prod-bucket"], "permissions": ["s3:GetObject", "s3:ListBucket"] },
+        {
+          "resources": ["arn:aws:s3:::prod-bucket", "arn:aws:s3:::prod-logs"],
+          "permissions": ["s3:GetObject", "s3:ListBucket"]
+        },
         { "resources": ["arn:aws:iam::123456789012:role/Admin"], "permissions": ["iam:AssumeRole"] }
       ]
     },
     {
       "provider": "gcp",
       "account": "test-project",
+      "context": {
+        "identity_id": "scanner@test-project.iam.gserviceaccount.com",
+        "project": "test-project",
+        "access_type": "service_account"
+      },
+      "permissions_by_severity": {
+        "admin": [],
+        "privilege_escalation": [],
+        "risky": ["compute.instances.get"],
+        "read_only": ["compute.instances.list"]
+      },
       "groups": [
-        { "resources": ["projects/test/instances/primary"], "permissions": ["compute.instances.get", "compute.instances.list"] }
+        {
+          "resources": [
+            "projects/test-project/zones/us-central1-a/instances/primary",
+            "projects/test-project/zones/us-central1-a/instances/worker-01",
+            "projects/test-project/zones/us-central1-b/instances/worker-02"
+          ],
+          "permissions": ["compute.instances.get", "compute.instances.list"]
+        }
       ]
     }
   ],

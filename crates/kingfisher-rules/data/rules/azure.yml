@@ -158,5 +158,253 @@ rules:
     examples:
       - '"aBc4Q~xY9kLmNpQrStUvWxYz01234567890abcd"'
       - 'AZURE_CLIENT_SECRET=xY14Q~abcdefghijklmnopqrstuvwxyz01234'
+    validation:
+      type: Http
+      content:
+        request:
+          method: POST
+          url: "https://login.microsoftonline.com/{{ AZURE_TENANT_ID }}/oauth2/v2.0/token"
+          headers:
+            Content-Type: application/x-www-form-urlencoded
+          body: "client_id={{ AZURE_CLIENT_ID | url_encode }}&client_secret={{ TOKEN | url_encode }}&scope=https%3A%2F%2Fgraph.microsoft.com%2F.default&grant_type=client_credentials"
+          response_matcher:
+            - report_response: true
+            - type: StatusMatch
+              status: [200]
+            - type: JsonValid
+            - type: WordMatch
+              words:
+                - '"access_token"'
+    depends_on_rule:
+      - rule_id: kingfisher.azure.7
+        variable: AZURE_TENANT_ID
+      - rule_id: kingfisher.azure.8
+        variable: AZURE_CLIENT_ID
     references:
       - https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app
+      - https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-client-creds-grant-flow
+
+  - name: Microsoft Entra Tenant ID
+    id: kingfisher.azure.7
+    pattern: |
+      (?xi)
+      \b
+      (?:
+        AZURE[\s._-]*TENANT[\s._-]*ID
+        | ARM[\s._-]*TENANT[\s._-]*ID
+        | ENTRA[\s._-]*TENANT[\s._-]*ID
+        | AAD[\s._-]*TENANT[\s._-]*ID
+        | (?:
+            AzureAd
+            | MicrosoftIdentity
+            | Entra
+          )
+          (?:.|[\n\r]){0,80}?
+          (?: tenantId | tenant_id )
+        | tenant ["']
+      )
+      (?:.|[\n\r]){0,16}?
+      (?: = | : | => )
+      \s*
+      ["']?
+      (
+        [0-9a-f]{8}
+        -
+        [0-9a-f]{4}
+        -
+        [0-9a-f]{4}
+        -
+        [0-9a-f]{4}
+        -
+        [0-9a-f]{12}
+      )
+      \b
+    min_entropy: 2.5
+    confidence: medium
+    visible: false
+    examples:
+      - 'AZURE_TENANT_ID="72f988bf-86f1-41af-91ab-2d7cd011db47"'
+      - '"tenant": "11111111-2222-4333-8444-555555555555"'
+      - 'AzureAd: { tenantId: aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee }'
+    references:
+      - https://learn.microsoft.com/en-us/entra/fundamentals/how-to-find-tenant
+
+  - name: Microsoft Entra Application Client ID
+    id: kingfisher.azure.8
+    pattern: |
+      (?xi)
+      \b
+      (?:
+        AZURE[\s._-]*CLIENT[\s._-]*ID
+        | ARM[\s._-]*CLIENT[\s._-]*ID
+        | ENTRA[\s._-]*CLIENT[\s._-]*ID
+        | AAD[\s._-]*CLIENT[\s._-]*ID
+        | (?:
+            AzureAd
+            | MicrosoftIdentity
+            | Entra
+          )
+          (?:.|[\n\r]){0,80}?
+          (?: clientId | client_id )
+        | appId
+      )
+      (?:.|[\n\r]){0,16}?
+      (?: = | : | => )
+      \s*
+      ["']?
+      (
+        [0-9a-f]{8}
+        -
+        [0-9a-f]{4}
+        -
+        [0-9a-f]{4}
+        -
+        [0-9a-f]{4}
+        -
+        [0-9a-f]{12}
+      )
+      \b
+    min_entropy: 2.5
+    confidence: medium
+    visible: false
+    examples:
+      - 'AZURE_CLIENT_ID="00001111-aaaa-4222-bbbb-3333cccc4444"'
+      - '"appId": "12345678-90ab-4cde-8f01-234567890abc"'
+      - 'AzureAd: { clientId: fedcba98-7654-4321-8fed-cba987654321 }'
+    references:
+      - https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app
+
+  - name: Microsoft Entra Contextual Client Secret
+    id: kingfisher.azure.9
+    pattern: |
+      (?xi)
+      \b
+      (?:
+        (?:
+          AZURE
+          | ARM
+          | ENTRA
+          | AAD
+          | MICROSOFT
+        )
+        [A-Z0-9._\s-]{0,24}
+        (?:
+          CLIENT[\s._-]*SECRET
+          | APP[\s._-]*SECRET
+          | APPLICATION[\s._-]*PASSWORD
+          | PASSWORD
+        )
+        |
+        appId
+        (?:.|[\n\r]){0,160}?
+        password
+        |
+        (?:
+          AzureAd
+          | MicrosoftIdentity
+          | Entra
+        )
+        (?:.|[\n\r]){0,160}?
+        (?:
+          clientSecret
+          | client_secret
+        )
+      )
+      (?:.|[\n\r]){0,16}?
+      (?:
+        =
+        |
+        :
+        |
+        =>
+      )
+      \s*
+      ["']?
+      (
+        [A-Z0-9_~.+/=-]{24,128}
+      )
+      (?: ["'\s,;}&\]] | $ )
+    pattern_requirements:
+      min_digits: 1
+      min_uppercase: 1
+      min_lowercase: 1
+      ignore_if_contains:
+        - changeme
+        - example
+        - placeholder
+        - your_client_secret
+        - your-secret
+    min_entropy: 3.5
+    confidence: medium
+    examples:
+      - 'AZURE_CLIENT_SECRET="mZ8Q~V4x2pL7nR5sT9uW3yA6bC1dE0fG"'
+      - 'ENTRA_APP_SECRET: 4Px7_kQ2mN9vR3tY6wA8cD1eF5gH0jLs'
+      - |
+        {
+          "appId": "12345678-90ab-4cde-8f01-234567890abc",
+          "password": "N7vX2pQ9_rT4mL6sK8wC3dF5gH1jA0bZ",
+          "tenant": "11111111-2222-4333-8444-555555555555"
+        }
+    validation:
+      type: Http
+      content:
+        request:
+          method: POST
+          url: "https://login.microsoftonline.com/{{ AZURE_TENANT_ID }}/oauth2/v2.0/token"
+          headers:
+            Content-Type: application/x-www-form-urlencoded
+          body: "client_id={{ AZURE_CLIENT_ID | url_encode }}&client_secret={{ TOKEN | url_encode }}&scope=https%3A%2F%2Fgraph.microsoft.com%2F.default&grant_type=client_credentials"
+          response_matcher:
+            - report_response: true
+            - type: StatusMatch
+              status: [200]
+            - type: JsonValid
+            - type: WordMatch
+              words:
+                - '"access_token"'
+    depends_on_rule:
+      - rule_id: kingfisher.azure.7
+        variable: AZURE_TENANT_ID
+      - rule_id: kingfisher.azure.8
+        variable: AZURE_CLIENT_ID
+    references:
+      - https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-client-creds-grant-flow
+      - https://learn.microsoft.com/en-us/cli/azure/ad/sp#az-ad-sp-create-for-rbac
+
+  - name: Microsoft Entra or Azure OAuth2 Access Token
+    id: kingfisher.azure.10
+    pattern: |
+      (?xi)
+      \b
+      (?:
+        AZURE[\s._-]*ACCESS[\s._-]*TOKEN
+        | ARM[\s._-]*ACCESS[\s._-]*TOKEN
+        | ENTRA[\s._-]*ACCESS[\s._-]*TOKEN
+        | MS[\s._-]*GRAPH[\s._-]*TOKEN
+        | MICROSOFT[\s._-]*GRAPH[\s._-]*TOKEN
+        | GRAPH[\s._-]*ACCESS[\s._-]*TOKEN
+      )
+      (?:.|[\n\r]){0,16}?
+      (?: = | : | => )
+      \s*
+      ["']?
+      (
+        ey[A-Z0-9_-]{12,}
+        \.
+        ey[A-Z0-9_-]{12,}
+        \.
+        [A-Z0-9_-]{24,}
+      )
+      (?: ["'\s,;}&\]] | $ )
+    pattern_requirements:
+      min_digits: 4
+    min_entropy: 3.5
+    confidence: medium
+    examples:
+      - 'MS_GRAPH_TOKEN=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJodHRwczovL2dyYXBoLm1pY3Jvc29mdC5jb20iLCJ0aWQiOiI3MmY5ODhiZi04NmYxLTQxYWYtOTFhYi0yZDdjZDAxMWRiNDciLCJvaWQiOiIxMTExMTExMS0yMjIyLTQzMzMtODQ0NC01NTU1NTU1NTU1NTUiLCJpZHR5cCI6ImFwcCIsInJvbGVzIjpbIlVzZXIuUmVhZC5BbGwiXX0.YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXowMTIzNDU2Nzg5'
+      - 'AZURE_ACCESS_TOKEN: eyJhbGciOiJSUzI1NiJ9.eyJhdWQiOiJodHRwczovL21hbmFnZW1lbnQuYXp1cmUuY29tLyIsInRpZCI6ImFhYWFhYWFhLWJiYmItNGNjYy04ZGRkLWVlZWVlZWVlZWVlZSIsIm9pZCI6IjEyMzQ1Njc4LTkwYWItNGNkZS04ZjAxLTIzNDU2Nzg5MGFiYyJ9.c2lnbmF0dXJlX2J5dGVzX2Zvcl9leGFtcGxlX29ubHkxMjM0NTY'
+    validation:
+      type: JWT
+    references:
+      - https://learn.microsoft.com/en-us/entra/identity-platform/access-token-claims-reference
+      - https://learn.microsoft.com/en-us/entra/identity-platform/scopes-oidc

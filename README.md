@@ -38,6 +38,7 @@ Kingfisher is a high-performance, open source secret detection tool for source c
 - Validate discovered credentials against provider APIs to reduce false positives
 - Revoke supported secrets directly from the CLI
 - Generate JSON, SARIF, TOON, and HTML outputs for security teams, compliance, and CI
+- Send scan summaries and optional per-finding details to Slack, Microsoft Teams, Discord, Mattermost, Google Chat, or any HTTPS webhook ([docs/ALERTS.md](/docs/ALERTS.md))
 
 ## Key Features
 
@@ -90,6 +91,7 @@ NOTE: Replay has been slowed down for demo
 - [What Is Kingfisher?](#what-is-kingfisher)
 - [Key Features](#key-features)
 - [Report Viewer (local and hosted)](#report-viewer-local-and-hosted)
+- [Alert Webhooks](#alert-webhooks)
 - [Compliance and Audit-Ready Scans](#compliance-and-audit-ready-scans)
 - [Benchmark Results](#benchmark-results)
 - [Getting Started](#getting-started)
@@ -408,6 +410,28 @@ kingfisher scan /path/to/scan --access-map --view-report
 
 **Click to view video**
 [![Demo](docs/demos/findings-thumbnail.png)](https://github.com/user-attachments/assets/d33ee7a6-c60a-4e42-88e0-ac03cb429a46)
+
+## Alert Webhooks
+
+Kingfisher can post scan summaries, and optionally per-finding details, to the chat and webhook destinations your team already watches. Supported destinations include Slack, Microsoft Teams, Discord, Mattermost, Google Chat, and any HTTPS endpoint that accepts a JSON POST.
+
+Slack, Teams, Discord, and Google Chat are inferred automatically from the webhook host. Mattermost has no canonical host name, so it must be set explicitly with `--alert-format mattermost`.
+
+```bash
+# Slack incoming webhook (format inferred from the URL host)
+kingfisher scan ./repo --alert-webhook "$SLACK_SECURITY_WEBHOOK"
+
+# Discord webhook (format inferred from the URL host)
+kingfisher scan ./repo --alert-webhook "$DISCORD_SECURITY_WEBHOOK"
+
+# Generic JSON webhook for a SIEM or internal service
+kingfisher scan ./repo \
+  --alert-webhook "https://siem.example.com/ingest" \
+  --alert-format generic \
+  --alert-detail summary
+```
+
+For payload shapes, per-webhook overrides, and config-file examples, see [docs/ALERTS.md](/docs/ALERTS.md).
 
 # Detection Rules
 
@@ -802,6 +826,7 @@ kingfisher scan /tmp/repo --branch feature-1 \
 |----------|-------------|
 | [INSTALLATION.md](docs/INSTALLATION.md) | Complete installation guide including pre-commit hooks setup for git, pre-commit framework, and Husky |
 | [INTEGRATIONS.md](docs/INTEGRATIONS.md) | Platform-specific scanning guide (GitHub, GitLab, AWS S3, Docker, Jira, Confluence, Slack, etc.) |
+| [ALERTS.md](docs/ALERTS.md) | Alert webhooks for Slack, Teams, Discord, Mattermost, Google Chat, and generic HTTPS endpoints |
 | [ACCESS_MAP.md](docs/ACCESS_MAP.md) | Access map: supported tokens and credential formats (43 providers including AWS, GCP, Azure, Alibaba Cloud, Stripe, Jira, monday.com, Asana, Pinecone, and more) |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | High-level Mermaid architecture diagram of the CLI, scanner pipeline, validation, access map, and outputs |
 | [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Deployment models for self-serve CLI use, CI/pre-commit enforcement, centralized scanning, and embedded library integrations |

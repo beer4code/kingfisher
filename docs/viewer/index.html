@@ -653,6 +653,201 @@
       border-color: var(--brand);
     }
 
+    .am-view-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 3px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface);
+    }
+
+    .am-view-switch__button {
+      border: 0;
+      border-radius: 7px;
+      padding: 7px 11px;
+      background: transparent;
+      color: var(--text-muted);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .am-view-switch__button.active {
+      color: var(--text-main);
+      background: var(--surface-strong);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .am-graph {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 300px;
+      min-height: 440px;
+      margin-bottom: 18px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--surface-muted);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .am-graph__canvas {
+      min-width: 0;
+      overflow: auto;
+      position: relative;
+      background:
+        radial-gradient(circle at 18% 14%, rgba(0, 237, 100, 0.06), transparent 28%),
+        linear-gradient(90deg, transparent 49.8%, rgba(148, 163, 184, 0.07) 50%, transparent 50.2%),
+        var(--surface-muted);
+    }
+
+    .am-graph__canvas svg {
+      display: block;
+      width: 100%;
+      min-width: 820px;
+      height: auto;
+    }
+
+    .am-graph__inspector {
+      border-left: 1px solid var(--border);
+      padding: 18px;
+      background: var(--surface);
+      overflow: auto;
+    }
+
+    .am-graph__eyebrow {
+      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 7px;
+    }
+
+    .am-graph__title {
+      color: var(--text-main);
+      font-size: 15px;
+      font-weight: 750;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .am-graph__subtitle {
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 1.5;
+      margin-top: 6px;
+      overflow-wrap: anywhere;
+    }
+
+    .am-graph__section {
+      padding-top: 15px;
+      margin-top: 15px;
+      border-top: 1px solid var(--border);
+    }
+
+    .am-graph__permission-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-top: 8px;
+    }
+
+    .am-graph__hint {
+      color: var(--text-muted);
+      font-size: 11px;
+      line-height: 1.5;
+      margin-top: 12px;
+    }
+
+    .am-graph__notice {
+      position: sticky;
+      left: 12px;
+      bottom: 12px;
+      width: max-content;
+      max-width: calc(100% - 24px);
+      margin: -42px 12px 12px;
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--text-muted);
+      font-size: 11px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .am-graph-node {
+      cursor: pointer;
+      outline: none;
+    }
+
+    .am-graph-node rect {
+      fill: var(--surface);
+      stroke: var(--border-strong);
+      stroke-width: 1;
+      transition: stroke 0.15s, fill 0.15s;
+    }
+
+    .am-graph-node:hover rect,
+    .am-graph-node:focus rect,
+    .am-graph-node.selected rect {
+      stroke: var(--brand);
+      stroke-width: 2;
+      fill: var(--surface-strong);
+    }
+
+    .am-graph-node text {
+      fill: var(--text-main);
+      pointer-events: none;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .am-graph-node .am-graph-node__meta {
+      fill: var(--text-muted);
+      font-size: 10px;
+    }
+
+    .am-graph-node--admin rect { stroke: #fb7185; }
+    .am-graph-node--privesc rect { stroke: #fb923c; }
+    .am-graph-node--risky rect { stroke: #facc15; }
+
+    .am-graph-edge {
+      fill: none;
+      stroke: rgba(148, 163, 184, 0.38);
+      stroke-width: 1.35;
+    }
+
+    .am-graph-edge--admin { stroke: rgba(251, 113, 133, 0.72); }
+    .am-graph-edge--privesc { stroke: rgba(251, 146, 60, 0.68); }
+    .am-graph-edge--risky { stroke: rgba(250, 204, 21, 0.6); }
+
+    .am-graph-provider-label {
+      fill: var(--text-muted);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+    }
+
+    .am-graph-column-label {
+      fill: var(--text-muted);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+    }
+
+    @media (max-width: 900px) {
+      .am-graph {
+        grid-template-columns: 1fr;
+      }
+      .am-graph__inspector {
+        border-left: 0;
+        border-top: 1px solid var(--border);
+        max-height: 300px;
+      }
+    }
+
     .am-stats {
       display: flex;
       gap: 16px;
@@ -2353,6 +2548,14 @@
                     <input type="checkbox" id="am-critical-checkbox">
                     <span>Critical only</span>
                   </label>
+                  <div class="am-view-switch" aria-label="Access map view">
+                    <button class="am-view-switch__button active" id="am-view-map" type="button" aria-pressed="true">Map</button>
+                    <button class="am-view-switch__button" id="am-view-details" type="button" aria-pressed="false">Details</button>
+                  </div>
+                </div>
+                <div id="am-graph" class="am-graph">
+                  <div id="am-graph-canvas" class="am-graph__canvas"></div>
+                  <aside id="am-graph-inspector" class="am-graph__inspector" aria-live="polite"></aside>
                 </div>
                 <div id="am-card-list" class="am-card-list">
                   <div style="color:var(--text-muted); font-size:13px; text-align:center; padding:32px 0;">
@@ -2602,6 +2805,9 @@
     let autoCollapsedAccessMap = false;
     let currentDetailFinding = null;
     let scanMetadata = {};
+    let accessMapViewMode = "map";
+    let selectedAccessMapNode = null;
+    let visibleAccessMapView = [];
 
     const dropZone = document.getElementById("drop-zone");
     const fileInput = document.getElementById("file-input");
@@ -2635,6 +2841,11 @@
     const treeSearch = document.getElementById("tree-search");
     const amContainer = document.getElementById("am-container");
     const amToggle = document.getElementById("am-toggle"); // may be null now
+    const amGraph = document.getElementById("am-graph");
+    const amGraphCanvas = document.getElementById("am-graph-canvas");
+    const amGraphInspector = document.getElementById("am-graph-inspector");
+    const amViewMap = document.getElementById("am-view-map");
+    const amViewDetails = document.getElementById("am-view-details");
     const copyAccessMapButton = document.getElementById("copy-access-map");
     const amEmptyNotice = document.getElementById("am-empty-notice");
     const themeToggle = document.getElementById("theme-toggle");
@@ -2827,6 +3038,28 @@
     treeSearch.addEventListener("input", (e) => {
       renderAccessMapTree(e.target.value || "");
     });
+
+    function setAccessMapViewMode(mode) {
+      accessMapViewMode = mode === "details" ? "details" : "map";
+      if (amGraph) amGraph.classList.toggle("hidden", accessMapViewMode !== "map");
+      const cardList = document.getElementById("am-card-list");
+      if (cardList) cardList.classList.toggle("hidden", accessMapViewMode !== "details");
+      if (amViewMap) {
+        amViewMap.classList.toggle("active", accessMapViewMode === "map");
+        amViewMap.setAttribute("aria-pressed", accessMapViewMode === "map" ? "true" : "false");
+      }
+      if (amViewDetails) {
+        amViewDetails.classList.toggle("active", accessMapViewMode === "details");
+        amViewDetails.setAttribute("aria-pressed", accessMapViewMode === "details" ? "true" : "false");
+      }
+    }
+
+    if (amViewMap) {
+      amViewMap.addEventListener("click", () => setAccessMapViewMode("map"));
+    }
+    if (amViewDetails) {
+      amViewDetails.addEventListener("click", () => setAccessMapViewMode("details"));
+    }
 
     const criticalCheckbox = document.getElementById("am-critical-checkbox");
     const criticalToggleWrap = document.getElementById("am-critical-toggle");
@@ -3639,6 +3872,7 @@
       rawData = null;
       currentDetailFinding = null;
       scanMetadata = {};
+      selectedAccessMapNode = null;
       duplicatesRemoved = { kingfisher: 0, trufflehog: 0, gitleaks: 0, total: 0 };
 
       currentFilter = "";
@@ -3657,6 +3891,7 @@
       rowsSelect.value = "10";
       treeSearch.value = "";
       if (detectorBreakdownActiveOnlyToggle) detectorBreakdownActiveOnlyToggle.checked = false;
+      setAccessMapViewMode("map");
 
       setAccessMapCollapsed(true, { auto: true });
       if (amToggle) amToggle.disabled = true;
@@ -6348,6 +6583,328 @@
       return { ...group, permissions: kept };
     }
 
+    function getAccessMapRiskClass(entry, permissions = null) {
+      const byClass = entry.identity && entry.identity.permissions_by_severity;
+      const summary = permissions
+        ? classifyPermissions(permissions, byClass)
+        : summarizeSeverity(entry);
+      if ((summary.admin || []).length || Number(summary.admin) > 0) return "admin";
+      if ((summary.privilege_escalation || []).length || Number(summary.privilege_escalation) > 0) return "privesc";
+      if ((summary.risky || []).length || Number(summary.risky) > 0) return "risky";
+      return "readonly";
+    }
+
+    function getAccessMapEntryKey(identity, index) {
+      const fingerprint = identity.fingerprint || "";
+      return fingerprint
+        ? "fingerprint:" + fingerprint
+        : [identity.provider || "unknown", identity.account || "unknown", index].join(":");
+    }
+
+    function getGraphResources(entry) {
+      const resources = new Map();
+      (entry.groups || []).forEach((group) => {
+        const names = (group.resources || []).length
+          ? group.resources
+          : ["Project-wide / unscoped access"];
+        names.forEach((name) => {
+          const label = String(name);
+          if (!resources.has(label)) resources.set(label, new Set());
+          (group.permissions || []).forEach((permission) => resources.get(label).add(permission));
+        });
+      });
+      return [...resources.entries()].map(([name, permissions]) => ({
+        name,
+        permissions: [...permissions],
+      }));
+    }
+
+    function truncateGraphLabel(value, maxLength) {
+      const text = String(value || "");
+      if (text.length <= maxLength) return text;
+      return text.slice(0, Math.max(1, maxLength - 1)) + "…";
+    }
+
+    function createSvgElement(name, attributes = {}) {
+      const element = document.createElementNS("http://www.w3.org/2000/svg", name);
+      Object.entries(attributes).forEach(([key, value]) => element.setAttribute(key, String(value)));
+      return element;
+    }
+
+    function appendGraphText(parent, x, y, text, className, attributes = {}) {
+      const element = createSvgElement("text", { x, y, ...attributes });
+      if (className) element.setAttribute("class", className);
+      element.textContent = text;
+      parent.appendChild(element);
+      return element;
+    }
+
+    function activateAccessMapNode(node) {
+      selectedAccessMapNode = node;
+      if (amGraphCanvas) {
+        amGraphCanvas.querySelectorAll(".am-graph-node").forEach((element) => {
+          element.classList.toggle("selected", element.dataset.graphKey === node.graphKey);
+        });
+      }
+      renderAccessMapInspector();
+    }
+
+    function attachGraphNodeInteraction(element, node) {
+      element.dataset.graphKey = node.graphKey;
+      element.setAttribute("role", "button");
+      element.setAttribute("tabindex", "0");
+      element.addEventListener("click", () => activateAccessMapNode(node));
+      element.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        activateAccessMapNode(node);
+      });
+    }
+
+    function renderAccessMapGraph(entries) {
+      if (!amGraphCanvas) return;
+      amGraphCanvas.innerHTML = "";
+
+      if (!entries.length) {
+        amGraphCanvas.innerHTML = `<div style="padding:42px 20px;text-align:center;color:var(--text-muted);font-size:13px;">${getAccessMapEmptyMessage()}</div>`;
+        if (amGraphInspector) {
+          amGraphInspector.innerHTML = '<div class="am-graph__eyebrow">Access path</div><div class="am-graph__title">Nothing to inspect</div><div class="am-graph__subtitle">Adjust the search or critical-only filter to show mapped identities and resources.</div>';
+        }
+        return;
+      }
+
+      const maxIdentities = 18;
+      const maxResourcesPerIdentity = 6;
+      const graphEntries = entries.slice(0, maxIdentities);
+      const rows = [];
+      let y = 54;
+      let previousProvider = "";
+
+      graphEntries.forEach((entry) => {
+        const provider = String(entry.identity.provider || "unknown").toUpperCase();
+        if (provider !== previousProvider) {
+          if (previousProvider) y += 18;
+          rows.push({ kind: "provider", provider, y });
+          y += 25;
+          previousProvider = provider;
+        }
+
+        const allResources = getGraphResources(entry);
+        const shownResources = allResources.slice(0, maxResourcesPerIdentity);
+        if (allResources.length > maxResourcesPerIdentity) {
+          shownResources.push({
+            name: `+${allResources.length - maxResourcesPerIdentity} more resources`,
+            permissions: [],
+            summary: true,
+          });
+        }
+        if (!shownResources.length) {
+          shownResources.push({ name: "Identity metadata only", permissions: [], summary: true });
+        }
+
+        const blockHeight = Math.max(76, shownResources.length * 54);
+        rows.push({
+          kind: "identity",
+          entry,
+          identityY: y + blockHeight / 2,
+          resources: shownResources.map((resource, index) => ({
+            ...resource,
+            y: y + 7 + index * 54,
+          })),
+        });
+        y += blockHeight + 16;
+      });
+
+      const width = 920;
+      const height = Math.max(440, y + 24);
+      const svg = createSvgElement("svg", {
+        viewBox: `0 0 ${width} ${height}`,
+        "aria-label": "Credential access paths",
+      });
+
+      appendGraphText(svg, 40, 26, "IDENTITIES", "am-graph-column-label");
+      appendGraphText(svg, 470, 26, "REACHABLE RESOURCES", "am-graph-column-label");
+
+      rows.forEach((row) => {
+        if (row.kind === "provider") {
+          appendGraphText(svg, 40, row.y, row.provider, "am-graph-provider-label");
+          const line = createSvgElement("line", {
+            x1: 112, y1: row.y - 4, x2: 870, y2: row.y - 4,
+            stroke: "rgba(148, 163, 184, 0.18)",
+          });
+          svg.appendChild(line);
+          return;
+        }
+
+        const entry = row.entry;
+        const identity = entry.identity;
+        const identityRisk = getAccessMapRiskClass(entry);
+        const identityNode = createSvgElement("g", {
+          class: `am-graph-node am-graph-node--${identityRisk}`,
+          transform: `translate(40 ${row.identityY - 32})`,
+        });
+        identityNode.appendChild(createSvgElement("rect", {
+          width: 280, height: 64, rx: 11,
+        }));
+        appendGraphText(identityNode, 14, 24, truncateGraphLabel(identity.account || "(unknown identity)", 36), "", {
+          "font-size": 13, "font-weight": 750,
+        });
+        const identityResourceCount = getGraphResources(entry).length;
+        const identityPermCount = new Set(
+          (entry.groups || []).flatMap((group) => group.permissions || [])
+        ).size;
+        appendGraphText(
+          identityNode,
+          14,
+          45,
+          `${String(identity.provider || "unknown").toUpperCase()} · ${identityResourceCount} resources · ${identityPermCount} permissions`,
+          "am-graph-node__meta"
+        );
+        const identitySelection = {
+          kind: "identity",
+          entryKey: entry.key,
+          graphKey: "identity:" + entry.key,
+        };
+        attachGraphNodeInteraction(identityNode, identitySelection);
+        svg.appendChild(identityNode);
+
+        row.resources.forEach((resource, resourceIndex) => {
+          const resourceRisk = resource.summary
+            ? "readonly"
+            : getAccessMapRiskClass(entry, resource.permissions);
+          const resourceX = 470;
+          const resourceY = resource.y;
+          const edge = createSvgElement("path", {
+            class: `am-graph-edge am-graph-edge--${resourceRisk}`,
+            d: `M 320 ${row.identityY} C 380 ${row.identityY}, 405 ${resourceY + 21}, ${resourceX} ${resourceY + 21}`,
+          });
+          svg.appendChild(edge);
+
+          const resourceNode = createSvgElement("g", {
+            class: `am-graph-node am-graph-node--${resourceRisk}`,
+            transform: `translate(${resourceX} ${resourceY})`,
+          });
+          resourceNode.appendChild(createSvgElement("rect", {
+            width: 390, height: 43, rx: 9,
+          }));
+          appendGraphText(resourceNode, 13, 19, truncateGraphLabel(resource.name, 54), "", {
+            "font-size": 11.5, "font-weight": 700,
+          });
+          appendGraphText(
+            resourceNode,
+            13,
+            34,
+            resource.summary
+              ? "Narrow the filter to explore these resources"
+              : `${resource.permissions.length} permission${resource.permissions.length !== 1 ? "s" : ""}`,
+            "am-graph-node__meta"
+          );
+
+          const resourceSelection = {
+            kind: resource.summary ? "summary" : "resource",
+            entryKey: entry.key,
+            resourceName: resource.name,
+            permissions: resource.permissions,
+            graphKey: `resource:${entry.key}:${resourceIndex}`,
+          };
+          attachGraphNodeInteraction(resourceNode, resourceSelection);
+          svg.appendChild(resourceNode);
+        });
+      });
+
+      amGraphCanvas.appendChild(svg);
+      if (entries.length > maxIdentities) {
+        const notice = document.createElement("div");
+        notice.className = "am-graph__notice";
+        notice.textContent = `Showing ${maxIdentities} of ${entries.length} identities. Use search to narrow the map.`;
+        amGraphCanvas.appendChild(notice);
+      }
+
+      const selectedStillVisible = selectedAccessMapNode
+        && [...svg.querySelectorAll(".am-graph-node")]
+          .some((element) => element.dataset.graphKey === selectedAccessMapNode.graphKey);
+      if (!selectedStillVisible) {
+        selectedAccessMapNode = {
+          kind: "identity",
+          entryKey: graphEntries[0].key,
+          graphKey: "identity:" + graphEntries[0].key,
+        };
+      }
+      activateAccessMapNode(selectedAccessMapNode);
+    }
+
+    function renderAccessMapInspector() {
+      if (!amGraphInspector) return;
+      const selection = selectedAccessMapNode;
+      const entry = selection
+        ? visibleAccessMapView.find((candidate) => candidate.key === selection.entryKey)
+        : null;
+      if (!entry) {
+        amGraphInspector.innerHTML = '<div class="am-graph__eyebrow">Access path</div><div class="am-graph__title">Select a node</div><div class="am-graph__subtitle">Choose an identity or resource to inspect its effective reach.</div>';
+        return;
+      }
+
+      const identity = entry.identity;
+      const isResource = selection.kind === "resource";
+      const permissions = isResource
+        ? (selection.permissions || [])
+        : [...new Set((entry.groups || []).flatMap((group) => group.permissions || []))];
+      const resourceCount = getGraphResources(entry).length;
+      const riskClass = getAccessMapRiskClass(entry, isResource ? permissions : null);
+      const riskLabels = {
+        admin: "Admin exposure",
+        privesc: "Privilege escalation",
+        risky: "Sensitive access",
+        readonly: "Read-only / informational",
+      };
+      const title = isResource ? selection.resourceName : (identity.account || "(unknown identity)");
+      const subtitle = isResource
+        ? `${identity.account || "(unknown identity)"} · ${String(identity.provider || "unknown").toUpperCase()}`
+        : `${String(identity.provider || "unknown").toUpperCase()} · ${resourceCount} reachable resource${resourceCount !== 1 ? "s" : ""}`;
+      const permissionLimit = 16;
+      const permissionHtml = permissions.slice(0, permissionLimit).map((permission) => {
+        const permissionRisk = getAccessMapRiskClass(entry, [permission]);
+        return `<span class="badge badge-perm badge-perm--${permissionRisk}">${escapeHtml(permission)}</span>`;
+      }).join("");
+      const morePermissions = permissions.length > permissionLimit
+        ? `<div class="am-graph__hint">+${permissions.length - permissionLimit} more permissions. Open Details for the complete list.</div>`
+        : "";
+
+      amGraphInspector.innerHTML = `
+        <div class="am-graph__eyebrow">${isResource ? "Reachable resource" : "Credential identity"}</div>
+        <div class="am-graph__title">${escapeHtml(title)}</div>
+        <div class="am-graph__subtitle">${escapeHtml(subtitle)}</div>
+        <div class="am-graph__section">
+          <span class="rollup-chip rollup-chip--${riskClass}">${escapeHtml(riskLabels[riskClass])}</span>
+          <div class="am-graph__hint">${permissions.length} effective permission${permissions.length !== 1 ? "s" : ""} shown in this access path.</div>
+        </div>
+        <div class="am-graph__section">
+          <div class="am-graph__eyebrow">Permissions</div>
+          <div class="am-graph__permission-list">${permissionHtml || '<span class="am-graph__subtitle">No explicit permissions reported.</span>'}</div>
+          ${morePermissions}
+        </div>
+        <div class="am-graph__section">
+          <button class="btn" id="am-inspector-details" type="button">Open full identity details</button>
+        </div>
+      `;
+
+      const detailsButton = document.getElementById("am-inspector-details");
+      if (detailsButton) {
+        detailsButton.addEventListener("click", () => {
+          setAccessMapViewMode("details");
+          const target = [...document.querySelectorAll("[data-access-map-key]")]
+            .find((element) => element.dataset.accessMapKey === entry.key);
+          if (target) {
+            const body = target.querySelector(".id-card__body");
+            const toggle = target.querySelector(".id-card__toggle");
+            if (body) body.classList.add("open");
+            if (toggle) toggle.textContent = "▼";
+            target.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        });
+      }
+    }
+
     function renderAccessMapTree(filter = "") {
       const list = document.getElementById("am-card-list");
       list.innerHTML = "";
@@ -6364,8 +6921,11 @@
       if (isCriticalOnly()) {
         visible = visible.filter(entryHasCritical);
       }
+      visibleAccessMapView = visible;
+      setAccessMapViewMode(accessMapViewMode);
 
       if (!visible || visible.length === 0) {
+        renderAccessMapGraph([]);
         list.innerHTML =
           `<div style="padding:32px 16px; text-align:center; color:var(--text-muted); font-size:13px;">${getAccessMapEmptyMessage()}</div>`;
         return;
@@ -6395,6 +6955,7 @@
         frag.appendChild(buildProviderSection(prov, entries));
       });
       list.appendChild(frag);
+      renderAccessMapGraph(visible);
     }
 
     function buildProviderSection(provider, entries) {
@@ -6554,6 +7115,7 @@
       // Card container
       const card = document.createElement("div");
       card.className = "id-card";
+      card.dataset.accessMapKey = entry.key || "";
 
       // Header (always visible)
       const header = document.createElement("div");
@@ -6889,7 +7451,7 @@
       if (!accessMap || accessMap.length === 0) return [];
 
       const identities = [];
-      accessMap.forEach((identity) => {
+      accessMap.forEach((identity, identityIndex) => {
         const account = formatIdentityLabel(identity);
         const groups = Array.isArray(identity.groups) ? identity.groups : [];
 
@@ -6927,7 +7489,12 @@
           permissions: group.permissions,
         }));
 
-        identities.push({ identity, groups: viewGroups, identityNameMatches });
+        identities.push({
+          identity,
+          groups: viewGroups,
+          identityNameMatches,
+          key: getAccessMapEntryKey(identity, identityIndex),
+        });
       });
 
       return identities;
