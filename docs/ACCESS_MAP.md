@@ -339,7 +339,12 @@ kingfisher access-map mongodb ./mongodb.uri --format json > mongodb.access-map.j
   - User access tokens (commonly `hf_...`)
   - Organization API tokens (commonly `api_org_...`)
 
-Kingfisher queries the `/api/whoami-v2` endpoint to resolve the token identity, role, and organization memberships. It also performs best-effort enumeration of authored models, datasets, and Spaces for the user and visible organizations to assess the blast radius.
+Kingfisher queries the `/api/whoami-v2` endpoint to resolve the token identity,
+role, and organization memberships. It uses Hugging Face's unified repository
+storage listing when available, with best-effort fallback enumeration, to map
+visible models, datasets, Spaces, and storage buckets. Resource visibility
+(`public`, `private`, or protected Spaces) and storage usage are included when
+reported by the API.
 
 #### Standalone example (Hugging Face)
 
@@ -351,7 +356,14 @@ kingfisher access-map huggingface ./huggingface.token --format json > huggingfac
 #### Notes (Hugging Face)
 
 - Access map uses `https://huggingface.co/api` as the API base.
-- Token role (read, write, admin, fineGrained) is derived from the `auth` section of the whoami response when available.
+- Token role (`read`, `write`, or `fineGrained`) is derived from the `auth`
+  section of the whoami response when available.
+- Fine-grained tokens are not treated as administrator tokens. Their exact
+  per-resource scopes are not exposed by `whoami`, so the map reports resources
+  the token could enumerate and notes that limitation.
+- Organization roles (`no_access`, `read`, `contributor`, `write`, and `admin`)
+  are recorded separately from the token role because effective access is the
+  intersection of both.
 
 ### Gitea (`gitea`)
 

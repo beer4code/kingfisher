@@ -38,9 +38,10 @@ use crate::{
         enumerate_bitbucket_repos, enumerate_filesystem_inputs, enumerate_github_repos,
         enumerate_huggingface_repos,
         repos::{
-            enumerate_gitea_repos, enumerate_gitlab_repos, fetch_confluence_pages,
-            fetch_gcs_objects, fetch_git_host_artifacts, fetch_jira_issues,
-            fetch_postman_resources, fetch_s3_objects, fetch_slack_messages, fetch_teams_messages,
+            enumerate_gitea_repos, enumerate_gitlab_repos, enumerate_huggingface_buckets,
+            fetch_confluence_pages, fetch_gcs_objects, fetch_git_host_artifacts,
+            fetch_huggingface_objects, fetch_jira_issues, fetch_postman_resources,
+            fetch_s3_objects, fetch_slack_messages, fetch_teams_messages,
         },
         run_secret_validation, save_docker_archives, save_docker_images,
         summary::{compute_scan_totals, print_scan_summary},
@@ -103,6 +104,7 @@ pub async fn run_async_scan(
 
     // ── Phase 2: Repository enumeration ─────────────────────────────────
     let repo_urls = enumerate_all_repos(args, global_args).await?;
+    let huggingface_buckets = enumerate_huggingface_buckets(args, global_args).await?;
 
     let mut input_roots = args.input_specifier_args.path_inputs.clone();
     // Bound the channel feeding the scan loop. Both the cloner pool and the
@@ -142,6 +144,19 @@ pub async fn run_async_scan(
     let enable_profiling = args.rule_stats;
     let matcher_stats = Arc::new(Mutex::new(MatcherStats::default()));
 
+    fetch_huggingface_objects(
+        args,
+        global_args,
+        &huggingface_buckets,
+        &datastore,
+        rules_db,
+        matcher_stats.as_ref(),
+        enable_profiling,
+        Arc::clone(&shared_profiler),
+        progress_enabled,
+    )
+    .await?;
+
     // Fetch S3 objects if requested (scanned immediately)
     fetch_s3_objects(
         args,
@@ -166,7 +181,8 @@ pub async fn run_async_scan(
     .await?;
 
     let has_remote_objects = args.input_specifier_args.s3_bucket.is_some()
-        || args.input_specifier_args.gcs_bucket.is_some();
+        || args.input_specifier_args.gcs_bucket.is_some()
+        || !huggingface_buckets.is_empty();
     // The artifact task pushes into `repo_rx` asynchronously, so we can't
     // observe its work via `input_roots`. Defer to the type to know which
     // flags schedule artifact fetching so this stays in sync as new sources

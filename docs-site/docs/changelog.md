@@ -8,9 +8,9 @@ description: "Kingfisher release history: new features, rules, bug fixes, and im
 All notable changes to this project will be documented in this file.
 
 ## [v1.105.0]
-- Expanded access-map coverage for Azure and AWS, including Azure credential aliases, AWS IAM policy evaluation, and paginated resource enumeration.
-- Updated the access-map docs for the new Azure and AWS credential formats, endpoints, and resource mappings.
-- Improved the access-map HTML viewer with an interactive graph, provider grouping, and a side inspector.
+- Expanded access-map coverage for Azure, AWS, and Hugging Face, including Azure credential aliases, AWS IAM policy evaluation, Hugging Face bucket metadata, and paginated resource enumeration.
+- Added Hugging Face bucket scanning support, including `owner/bucket` and `hf://buckets/...` targets plus recursive bucket-tree enumeration.
+- Improved the access-map docs and HTML viewer for the new Azure, AWS, and Hugging Face resource mappings.
 
 ## [v1.104.0]
 - Compiled Vectorscan rule caching is now enabled by default, with `--no-rule-cache` available for opt-out and `--rule-cache-dir` / `KF_RULE_CACHE_DIR` for custom or Docker-mounted cache locations.

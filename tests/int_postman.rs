@@ -160,6 +160,7 @@ async fn test_scan_postman_all() -> Result<()> {
             huggingface_model: Vec::new(),
             huggingface_dataset: Vec::new(),
             huggingface_space: Vec::new(),
+            huggingface_bucket: Vec::new(),
             huggingface_exclude: Vec::new(),
             gitea_user: Vec::new(),
             gitea_organization: Vec::new(),

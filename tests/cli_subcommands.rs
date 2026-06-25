@@ -728,7 +728,7 @@ mod huggingface {
             .args(["scan", "huggingface", "--help"])
             .assert()
             .success()
-            .stdout(contains("Hugging Face").or(contains("HuggingFace")));
+            .stdout(contains("Hugging Face").or(contains("HuggingFace")).and(contains("--bucket")));
     }
 
     #[test]
@@ -813,6 +813,22 @@ mod huggingface {
             ])
             .assert()
             .code(predicates::function::function(|code: &i32| *code == 0 || *code == 1));
+    }
+
+    #[test]
+    fn scan_huggingface_with_bucket() {
+        Command::new(assert_cmd::cargo::cargo_bin!("kingfisher"))
+            .args([
+                "scan",
+                "huggingface",
+                "--bucket",
+                "testorg/testbucket/logs",
+                "--list-only",
+                "--no-update-check",
+            ])
+            .assert()
+            .success()
+            .stdout(contains("hf://buckets/testorg/testbucket/logs"));
     }
 
     #[test]

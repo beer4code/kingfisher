@@ -539,7 +539,7 @@ impl ScanCommandArgs {
                 ScanInputCommand::Huggingface(args) => {
                     if args.specifiers.is_empty() {
                         bail!(
-                            "You must specify at least one --user, --org, --model, --dataset, or --space when scanning Hugging Face"
+                            "You must specify at least one --user, --org, --model, --dataset, --space, or --bucket when scanning Hugging Face"
                         );
                     }
                     if args.list_only {
@@ -552,6 +552,7 @@ impl ScanCommandArgs {
                         scan_args.input_specifier_args.huggingface_dataset =
                             args.specifiers.dataset;
                         scan_args.input_specifier_args.huggingface_space = args.specifiers.space;
+                        scan_args.input_specifier_args.huggingface_bucket = args.specifiers.bucket;
                         scan_args.input_specifier_args.huggingface_exclude =
                             args.specifiers.exclude;
                         None
@@ -732,7 +733,7 @@ pub enum ScanInputCommand {
     /// Enumerate and scan Azure DevOps repositories
     Azure(AzureScanArgs),
 
-    /// Enumerate and scan Hugging Face repositories
+    /// Enumerate and scan Hugging Face repositories and buckets
     Huggingface(HuggingfaceScanArgs),
 
     /// Scan Slack search results

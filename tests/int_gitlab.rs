@@ -82,6 +82,7 @@ fn test_gitlab_remote_scan() -> Result<()> {
             huggingface_model: Vec::new(),
             huggingface_dataset: Vec::new(),
             huggingface_space: Vec::new(),
+            huggingface_bucket: Vec::new(),
             huggingface_exclude: Vec::new(),
 
             gitea_user: Vec::new(),
@@ -280,6 +281,7 @@ fn test_gitlab_remote_scan_no_history() -> Result<()> {
             huggingface_model: Vec::new(),
             huggingface_dataset: Vec::new(),
             huggingface_space: Vec::new(),
+            huggingface_bucket: Vec::new(),
             huggingface_exclude: Vec::new(),
 
             gitea_user: Vec::new(),

@@ -1135,7 +1135,13 @@ fn describe_scan_target(args: &InputSpecifierArgs) -> Option<String> {
     if !args.gitlab_group.is_empty() {
         return Some(format!("gitlab group: {}", join_brief(&args.gitlab_group, "gitlab groups")));
     }
-    if !args.huggingface_user.is_empty() || !args.huggingface_organization.is_empty() {
+    if !args.huggingface_user.is_empty()
+        || !args.huggingface_organization.is_empty()
+        || !args.huggingface_model.is_empty()
+        || !args.huggingface_dataset.is_empty()
+        || !args.huggingface_space.is_empty()
+        || !args.huggingface_bucket.is_empty()
+    {
         return Some("huggingface".to_string());
     }
     if !args.gitea_user.is_empty() || !args.gitea_organization.is_empty() {
@@ -1561,6 +1567,7 @@ async fn async_main(args: CommandLineArgs, matches: clap::ArgMatches) -> Result<
                                 model: specifiers.model.clone(),
                                 dataset: specifiers.dataset.clone(),
                                 space: specifiers.space.clone(),
+                                bucket: specifiers.bucket.clone(),
                                 exclude: specifiers.exclude.clone(),
                             };
                             let auth = huggingface::AuthConfig::from_env();
@@ -1653,6 +1660,7 @@ fn create_default_scan_args() -> cli::commands::scan::ScanArgs {
             huggingface_model: Vec::new(),
             huggingface_dataset: Vec::new(),
             huggingface_space: Vec::new(),
+            huggingface_bucket: Vec::new(),
             huggingface_exclude: Vec::new(),
 
             gitea_user: Vec::new(),

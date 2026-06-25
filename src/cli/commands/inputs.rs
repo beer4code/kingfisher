@@ -127,11 +127,11 @@ pub struct InputSpecifierArgs {
     #[arg(long, alias = "include-subgroups", hide = true)]
     pub gitlab_include_subgroups: bool,
 
-    /// Scan models, datasets, and Spaces belonging to the specified Hugging Face users
+    /// Scan models, datasets, Spaces, and buckets belonging to the specified Hugging Face users
     #[arg(long = "huggingface-user", hide = true)]
     pub huggingface_user: Vec<String>,
 
-    /// Scan models, datasets, and Spaces belonging to the specified Hugging Face organizations
+    /// Scan models, datasets, Spaces, and buckets belonging to the specified Hugging Face organizations
     #[arg(long = "huggingface-organization", alias = "huggingface-org", hide = true)]
     pub huggingface_organization: Vec<String>,
 
@@ -147,7 +147,11 @@ pub struct InputSpecifierArgs {
     #[arg(long = "huggingface-space", hide = true)]
     pub huggingface_space: Vec<String>,
 
-    /// Skip specific Hugging Face repositories during enumeration (accepts optional prefixes like model:, dataset:, or space:)
+    /// Scan a specific Hugging Face bucket or prefix (owner/name, hf:// URI, or full URL)
+    #[arg(long = "huggingface-bucket", alias = "hf-bucket", hide = true)]
+    pub huggingface_bucket: Vec<String>,
+
+    /// Skip specific Hugging Face resources during enumeration (accepts model:, dataset:, space:, or bucket: prefixes)
     #[arg(long = "huggingface-exclude", value_name = "IDENTIFIER", hide = true)]
     pub huggingface_exclude: Vec<String>,
 
@@ -460,6 +464,7 @@ impl InputSpecifierArgs {
             || !self.huggingface_model.is_empty()
             || !self.huggingface_dataset.is_empty()
             || !self.huggingface_space.is_empty()
+            || !self.huggingface_bucket.is_empty()
             || !self.bitbucket_user.is_empty()
             || !self.bitbucket_workspace.is_empty()
             || !self.bitbucket_project.is_empty()
@@ -654,6 +659,7 @@ impl InputSpecifierArgs {
             || !self.huggingface_model.is_empty()
             || !self.huggingface_dataset.is_empty()
             || !self.huggingface_space.is_empty()
+            || !self.huggingface_bucket.is_empty()
             || !self.huggingface_exclude.is_empty()
     }
 

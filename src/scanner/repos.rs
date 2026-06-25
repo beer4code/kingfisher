@@ -13,7 +13,9 @@ use url::Url;
 
 use crate::blob::BlobIdMap;
 use crate::{
-    PathBuf, azure, bitbucket,
+    PathBuf, azure,
+    binary::is_binary,
+    bitbucket,
     blob::BlobMetadata,
     cli::{
         commands::{github::GitCloneMode, github::GitHistoryMode, scan},
@@ -533,14 +535,7 @@ pub async fn enumerate_huggingface_repos(
     args: &scan::ScanArgs,
     global_args: &global::GlobalArgs,
 ) -> Result<Vec<GitUrl>> {
-    let repo_specifiers = huggingface::RepoSpecifiers {
-        user: args.input_specifier_args.huggingface_user.clone(),
-        organization: args.input_specifier_args.huggingface_organization.clone(),
-        model: args.input_specifier_args.huggingface_model.clone(),
-        dataset: args.input_specifier_args.huggingface_dataset.clone(),
-        space: args.input_specifier_args.huggingface_space.clone(),
-        exclude: args.input_specifier_args.huggingface_exclude.clone(),
-    };
+    let repo_specifiers = huggingface_specifiers(args);
 
     let mut repo_urls = args.input_specifier_args.git_url.clone();
     if !repo_specifiers.is_empty() {
@@ -590,6 +585,59 @@ pub async fn enumerate_huggingface_repos(
     repo_urls.sort();
     repo_urls.dedup();
     Ok(repo_urls)
+}
+
+fn huggingface_specifiers(args: &scan::ScanArgs) -> huggingface::RepoSpecifiers {
+    huggingface::RepoSpecifiers {
+        user: args.input_specifier_args.huggingface_user.clone(),
+        organization: args.input_specifier_args.huggingface_organization.clone(),
+        model: args.input_specifier_args.huggingface_model.clone(),
+        dataset: args.input_specifier_args.huggingface_dataset.clone(),
+        space: args.input_specifier_args.huggingface_space.clone(),
+        bucket: args.input_specifier_args.huggingface_bucket.clone(),
+        exclude: args.input_specifier_args.huggingface_exclude.clone(),
+    }
+}
+
+pub async fn enumerate_huggingface_buckets(
+    args: &scan::ScanArgs,
+    global_args: &global::GlobalArgs,
+) -> Result<Vec<huggingface::BucketTarget>> {
+    let specifiers = huggingface_specifiers(args);
+    if specifiers.user.is_empty()
+        && specifiers.organization.is_empty()
+        && specifiers.bucket.is_empty()
+    {
+        return Ok(Vec::new());
+    }
+
+    let mut progress = if global_args.use_progress() {
+        let style = ProgressStyle::with_template("{spinner} {msg} [{elapsed_precise}]")
+            .expect("progress bar style template should compile");
+        let pb = ProgressBar::new_spinner()
+            .with_style(style)
+            .with_message("Enumerating Hugging Face buckets...");
+        pb.enable_steady_tick(Duration::from_millis(500));
+        pb
+    } else {
+        ProgressBar::hidden()
+    };
+
+    let auth = huggingface::AuthConfig::from_env();
+    let buckets = huggingface::enumerate_bucket_targets(
+        &specifiers,
+        &auth,
+        global_args.ignore_certs,
+        Some(&mut progress),
+    )
+    .await
+    .context("Failed to enumerate Hugging Face buckets")?;
+
+    progress.finish_with_message(format!(
+        "Found {} buckets from Hugging Face",
+        HumanCount(buckets.len() as u64)
+    ));
+    Ok(buckets)
 }
 
 pub async fn enumerate_bitbucket_repos(
@@ -1049,6 +1097,101 @@ pub async fn fetch_s3_objects(
     let total = progress.position();
     progress.finish_with_message(format!("Fetched {} S3 objects", total));
 
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn fetch_huggingface_objects(
+    args: &scan::ScanArgs,
+    global_args: &global::GlobalArgs,
+    buckets: &[huggingface::BucketTarget],
+    datastore: &Arc<Mutex<findings_store::FindingsStore>>,
+    rules_db: &RulesDatabase,
+    matcher_stats: &Mutex<MatcherStats>,
+    enable_profiling: bool,
+    shared_profiler: Arc<crate::rule_profiling::ConcurrentRuleProfiler>,
+    progress_enabled: bool,
+) -> Result<()> {
+    if buckets.is_empty() {
+        return Ok(());
+    }
+
+    let scanner_pool = Arc::new(ScannerPool::new(Arc::new(rules_db.vectorscan_db().clone())));
+    let seen_blobs = BlobIdMap::new();
+    let matcher = Matcher::new(
+        rules_db,
+        scanner_pool,
+        &seen_blobs,
+        Some(matcher_stats),
+        enable_profiling,
+        if enable_profiling { Some(shared_profiler.clone()) } else { None },
+        &args.extra_ignore_comments,
+        args.no_inline_ignore,
+        !args.no_ignore_if_contains,
+    )?;
+    let mut processor = BlobProcessor { matcher };
+
+    let progress = if progress_enabled {
+        let style =
+            ProgressStyle::with_template("{spinner} {msg} ({pos} objects) [{elapsed_precise}]")
+                .expect("progress bar style template should compile");
+        let pb = ProgressBar::new_spinner()
+            .with_style(style)
+            .with_message("Fetching Hugging Face bucket objects");
+        pb.enable_steady_tick(Duration::from_millis(500));
+        pb
+    } else {
+        ProgressBar::hidden()
+    };
+    let pb = progress.clone();
+    let auth = huggingface::AuthConfig::from_env();
+
+    huggingface::visit_bucket_objects(
+        buckets,
+        &auth,
+        global_args.ignore_certs,
+        args.content_filtering_args.max_file_size_bytes(),
+        &args.content_filtering_args.exclude,
+        move |bucket, key, bytes| {
+            pb.inc(1);
+            if args.content_filtering_args.no_binary && is_binary(&bytes) {
+                debug!("Skipping binary Hugging Face bucket object {}/{}", bucket.bucket_id(), key);
+                return Ok(());
+            }
+
+            let origin = OriginSet::new(
+                Origin::from_extended(serde_json::json!({
+                    "path": bucket.object_uri(&key)
+                })),
+                Vec::new(),
+            );
+            let blob = crate::blob::Blob::from_bytes(bytes);
+
+            if let Some((origin, blob_md, scored_matches)) = processor.run(
+                origin,
+                blob,
+                args.no_dedup,
+                args.redact,
+                args.no_base64,
+                args.turbo,
+            )? {
+                let origin_arc = Arc::new(origin);
+                let blob_arc = Arc::new(blob_md);
+                let mut batch = Vec::with_capacity(scored_matches.len());
+                for (_score, m) in scored_matches {
+                    batch.push((origin_arc.clone(), blob_arc.clone(), m));
+                }
+
+                let added = datastore.lock().unwrap().record(batch, !args.no_dedup);
+                debug!("Added {} new Hugging Face bucket blobs", added);
+            }
+            Ok(())
+        },
+    )
+    .await?;
+
+    let total = progress.position();
+    progress.finish_with_message(format!("Fetched {} Hugging Face bucket objects", total));
     Ok(())
 }
 

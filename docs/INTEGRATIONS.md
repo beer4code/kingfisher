@@ -629,7 +629,8 @@ and pass `--ignore-certs` when connecting to HTTP or otherwise insecure instance
 
 ## Hugging Face
 
-Hugging Face hosts git repositories for models, datasets, and Spaces. Kingfisher can enumerate and scan all three resource types.
+Hugging Face hosts git repositories for models, datasets, and Spaces, plus mutable
+Xet-backed storage buckets. Kingfisher scans all four resource types.
 
 ### Scan Hugging Face user
 
@@ -653,17 +654,37 @@ kingfisher scan huggingface --huggingface-dataset https://huggingface.co/dataset
 kingfisher scan huggingface --huggingface-space <owner/space>
 ```
 
-Use `--huggingface-exclude` to omit results returned by user or organization enumeration. Prefix values with `model:`, `dataset:`, or `space:` when you only want to skip a specific resource type.
+Scan an entire bucket or a prefix using an ID, Hub URL, or `hf://` URI:
 
-### List Hugging Face repositories
+```bash
+kingfisher scan huggingface --bucket <owner/bucket>
+kingfisher scan huggingface --bucket hf://buckets/<owner>/<bucket>/<prefix>
+kingfisher scan huggingface \
+    --huggingface-bucket https://huggingface.co/buckets/<owner>/<bucket>/tree/<prefix>
+```
+
+User and organization scans automatically include their visible buckets. Bucket
+objects honor `--max-file-size`, `--exclude`, and `--no-binary`. Buckets are
+mutable and non-versioned, so only their current contents are scanned.
+
+Use `--huggingface-exclude` to omit results returned by user or organization
+enumeration. Prefix values with `model:`, `dataset:`, `space:`, or `bucket:`
+when you only want to skip a specific resource type.
+
+### List Hugging Face scan targets
 
 ```bash
 kingfisher scan huggingface --huggingface-user <username> --list-only
 ```
 
+Repository targets are printed as HTTPS git URLs and buckets as
+`hf://buckets/<owner>/<bucket>`.
+
 ### Authenticate to Hugging Face
 
-Private repositories require an access token provided through the `KF_HUGGINGFACE_TOKEN` environment variable. For git authentication the helper also honours `KF_HUGGINGFACE_USERNAME` (default `hf_user`).
+Private repositories and buckets require an access token provided through the
+`KF_HUGGINGFACE_TOKEN` environment variable. For git authentication the helper
+also honours `KF_HUGGINGFACE_USERNAME` (default `hf_user`).
 
 ## Jira
 
