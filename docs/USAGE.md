@@ -329,6 +329,39 @@ Result:   ✓ VALID
 Response: arn:aws:iam::123456789012:user/example
 ```
 
+For scans, repeat `--rule` and `--exclude-rule` as needed:
+
+```bash
+kingfisher scan ./repo \
+  --rule kingfisher.github.1 \
+  --rule kingfisher.github.2 \
+  --exclude-rule kingfisher.openai.1 \
+  --exclude-rule kingfisher.openai.2
+```
+
+You can also use family prefixes on the CLI:
+
+```bash
+kingfisher scan ./repo --rule kingfisher.github --exclude-rule kingfisher.openai
+```
+
+The same selectors also work in `kingfisher.yaml` under `rules.enabled` and
+`rules.disabled`:
+
+```yaml
+rules:
+  enabled:
+    - kingfisher.github.1   # include exact rule IDs
+    - kingfisher.github.2
+  disabled:
+    - kingfisher.openai.1   # exclude exact rule IDs
+    - kingfisher.openai.2
+```
+
+Use a prefix like `kingfisher.github` if you want to include or exclude an
+entire family instead of single rules. Wildcards like `kingfisher.g*` are not
+supported.
+
 ### Direct secret revocation with `kingfisher revoke`
 
 When you need to invalidate a known token immediately, use `kingfisher revoke` to call the rule's `revocation` configuration without scanning files. Revocation requests use the same Liquid templating and response matchers as `validation`.

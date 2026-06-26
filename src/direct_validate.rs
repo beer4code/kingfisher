@@ -966,6 +966,7 @@ pub(crate) fn create_minimal_scan_args() -> crate::cli::commands::scan::ScanArgs
         rules: RuleSpecifierArgs {
             rules_path: Vec::new(),
             rule: vec!["all".into()],
+            exclude_rule: Vec::new(),
             load_builtins: true,
         },
         rule_cache: RuleCacheArgs::default(),

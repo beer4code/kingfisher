@@ -66,6 +66,7 @@ rules:
         rules: RuleSpecifierArgs {
             rules_path: vec![rules_dir.clone()],
             rule: vec!["all".into()],
+            exclude_rule: Vec::new(),
             load_builtins: false,
         },
         rule_cache: RuleCacheArgs::default(),

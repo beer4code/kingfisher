@@ -108,6 +108,7 @@ async fn test_validation_cache_and_depvars() -> Result<()> {
         rules: RuleSpecifierArgs {
             rules_path: vec![work_dir.path().to_path_buf()],
             rule: vec!["all".into()],
+            exclude_rule: Vec::new(),
             load_builtins: false,
         },
         rule_cache: RuleCacheArgs::default(),

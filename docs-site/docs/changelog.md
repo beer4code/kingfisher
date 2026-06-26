@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 - Expanded access-map coverage for Azure, AWS, Hugging Face, and Salesforce, including Azure credential aliases, AWS IAM policy evaluation, Hugging Face bucket metadata, and Salesforce API-version discovery plus read-only object and permission enumeration.
 - Added Hugging Face bucket scanning support, including `owner/bucket` and `hf://buckets/...` targets plus recursive bucket-tree enumeration.
 - Added Slack file scanning alongside message search, including downloading accessible files for scanning; private file downloads require `files:read`.
+- Added rule selection exclusions for scans via repeated `--exclude-rule` flags and `rules.disabled` in `kingfisher.yaml`, alongside the existing include selectors.
 - Improved the access-map docs and HTML viewer for the new Azure, AWS, Hugging Face, and Salesforce resource mappings.
 
 ## [v1.104.0]

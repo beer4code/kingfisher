@@ -53,6 +53,7 @@ fn test_gitlab_remote_scan() -> Result<()> {
         rules: RuleSpecifierArgs {
             rules_path: Vec::new(),
             rule: vec!["all".into()],
+            exclude_rule: Vec::new(),
             load_builtins: true,
         },
         rule_cache: RuleCacheArgs::default(),
@@ -252,6 +253,7 @@ fn test_gitlab_remote_scan_no_history() -> Result<()> {
         rules: RuleSpecifierArgs {
             rules_path: Vec::new(),
             rule: vec!["all".into()],
+            exclude_rule: Vec::new(),
             load_builtins: true,
         },
         rule_cache: RuleCacheArgs::default(),

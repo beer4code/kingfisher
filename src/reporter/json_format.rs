@@ -95,6 +95,7 @@ mod tests {
             rules: RuleSpecifierArgs {
                 rules_path: Vec::new(),
                 rule: vec!["all".into()],
+                exclude_rule: Vec::new(),
                 load_builtins: true,
             },
             rule_cache: RuleCacheArgs::default(),

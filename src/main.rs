@@ -474,6 +474,7 @@ fn apply_config(
         }
     }
     scan_args.rules.rules_path.extend(cfg.rules.paths.iter().cloned());
+    scan_args.rules.exclude_rule.extend(cfg.rules.disabled.iter().cloned());
     if let Some(v) = cfg.rules.load_builtins
         && config_wins(scan_matches, "load_builtins")
     {
@@ -820,6 +821,9 @@ fn build_config_yaml(
     let mut rules = RulesConfig::default();
     if user_set(sub_matches, "rule") {
         rules.enabled = scan_args.rules.rule.clone();
+    }
+    if user_set(sub_matches, "exclude_rule") {
+        rules.disabled = scan_args.rules.exclude_rule.clone();
     }
     if !scan_args.rules.rules_path.is_empty() {
         rules.paths = scan_args.rules.rules_path.clone();
@@ -1630,6 +1634,7 @@ fn create_default_scan_args() -> cli::commands::scan::ScanArgs {
         rules: RuleSpecifierArgs {
             rules_path: Vec::new(),
             rule: vec!["all".into()],
+            exclude_rule: Vec::new(),
             load_builtins: true,
         },
         rule_cache: RuleCacheArgs::default(),
@@ -2236,6 +2241,30 @@ rules:
     }
 
     #[test]
+    fn rules_disabled_is_concatenated_with_cli_exclusions() {
+        let yaml = r#"
+rules:
+  disabled: ["kingfisher.github.1"]
+"#;
+        let cfg = parse_str(yaml).unwrap();
+        let (args, matches) =
+            parse(&["kingfisher", "scan", "--exclude-rule", "kingfisher.openai.1", "."]);
+        let mut global_args = args.global_args.clone();
+        let mut scan_args = into_scan(args);
+        super::apply_config(
+            &mut scan_args,
+            &mut global_args,
+            &cfg,
+            matches.subcommand_matches("scan"),
+        );
+
+        assert_eq!(
+            scan_args.rules.exclude_rule,
+            vec!["kingfisher.openai.1".to_string(), "kingfisher.github.1".to_string()]
+        );
+    }
+
+    #[test]
     fn rule_cache_config_and_cli_precedence_respects_opt_out() {
         let cfg = parse_str(
             r#"
@@ -2377,6 +2406,8 @@ alerts:
             "vendor/",
             "--skip-word",
             "EXAMPLE",
+            "--exclude-rule",
+            "kingfisher.github.1",
             "--format",
             "toon",
             "--alert-min-confidence",
@@ -2415,6 +2446,7 @@ alerts:
         assert_eq!(cfg.filters.exclude, vec!["vendor/".to_string()]);
         assert_eq!(cfg.filters.skip_words, vec!["EXAMPLE".to_string()]);
         assert!(cfg.filters.max_file_size_mb.is_none(), "should not emit unset filters");
+        assert_eq!(cfg.rules.disabled, vec!["kingfisher.github.1".to_string()]);
 
         assert!(matches!(cfg.output.format, Some(ConfigReportFormat::Toon)));
         assert!(cfg.output.path.is_none());

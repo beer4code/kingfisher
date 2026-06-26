@@ -37,7 +37,31 @@ For list-typed values both sources are concatenated, so passing
 `--skip-word EXAMPLE` and listing `EXAMPLE` again in `kingfisher.yaml` is safe
 but redundant. The one nuance: `rules.enabled` *replaces* the synthetic
 `["all"]` default when you don't pass `--rule`, so a config that lists
-`["custom"]` actually narrows the selection.
+`["custom"]` actually narrows the selection. `rules.disabled` is applied
+after the enabled set is resolved, so `enabled: ["all"]` plus a few disabled
+rule IDs means "scan with everything except these rules."
+
+`rules.enabled` and `rules.disabled` both accept exact rule IDs and family
+prefixes:
+
+```yaml
+rules:
+  enabled:
+    - kingfisher.github.1   # include exact rule IDs
+    - kingfisher.github.2
+  disabled:
+    - kingfisher.openai.1    # exclude exact rule IDs
+    - kingfisher.openai.2
+```
+
+Use a prefix like `kingfisher.github` if you want to include or exclude an
+entire family instead of single rules. Wildcards like `kingfisher.g*` are not
+supported.
+
+The CLI equivalents are repeated `--rule` and `--exclude-rule` flags, for
+example `kingfisher scan ./repo --rule kingfisher.github.1 --rule
+kingfisher.github.2 --exclude-rule kingfisher.openai.1 --exclude-rule
+kingfisher.openai.2`.
 
 ## End-to-end: create a config and scan with it
 
@@ -155,6 +179,8 @@ scan:
 
 rules:
   enabled: ["all"]              # list, additive                 (--rule)
+  disabled:                     # list, additive                 (--exclude-rule)
+    - kingfisher.github.1
   paths:                        # list, additive                 (--rules-path)
     - ./custom-rules/
   load_builtins: true           # bool                           (--load-builtins)
