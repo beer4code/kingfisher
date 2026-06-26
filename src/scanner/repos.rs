@@ -211,6 +211,10 @@ where
                         progress.suspend(|| info!("Updating clone of {repo_url}..."));
                         match git.update_clone(&repo_url, &output_dir) {
                             Ok(()) => {
+                                {
+                                    let mut ds = datastore.lock().unwrap();
+                                    ds.register_repo_link(output_dir.clone(), repo_url.to_string());
+                                }
                                 let _ = ready_tx.send(output_dir);
                                 progress.inc(1);
                                 return;
@@ -253,6 +257,11 @@ where
                         });
                         progress.inc(1);
                         return;
+                    }
+
+                    {
+                        let mut ds = datastore.lock().unwrap();
+                        ds.register_repo_link(output_dir.clone(), repo_url.to_string());
                     }
 
                     let _ = ready_tx.send(output_dir);
