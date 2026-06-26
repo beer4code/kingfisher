@@ -83,6 +83,8 @@ rules:
             all_github_organizations: false,
             github_api_url: Url::parse("https://api.github.com/").unwrap(),
             github_repo_type: GitHubRepoType::Source,
+            github_event_user: Vec::new(),
+            github_event_lookback_hours: 24,
             // new GitLab defaults
             gitlab_user: Vec::new(),
             gitlab_group: Vec::new(),

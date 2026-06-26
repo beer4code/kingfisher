@@ -39,6 +39,19 @@ mod github {
     }
 
     #[test]
+    fn scan_github_public_events_help() {
+        Command::new(assert_cmd::cargo::cargo_bin!("kingfisher"))
+            .args(["scan", "github", "--help"])
+            .assert()
+            .success()
+            .stdout(
+                contains("--public-events")
+                    .and(contains("--event-lookback-hours"))
+                    .and(contains("--user-file")),
+            );
+    }
+
+    #[test]
     fn scan_github_requires_specifier() {
         Command::new(assert_cmd::cargo::cargo_bin!("kingfisher"))
             .args(["scan", "github", "--no-update-check"])
@@ -206,6 +219,104 @@ mod github {
             ])
             .assert()
             .code(predicates::function::function(|code: &i32| *code == 0 || *code == 1));
+    }
+
+    #[test]
+    fn scan_github_public_events_requires_user() {
+        Command::new(assert_cmd::cargo::cargo_bin!("kingfisher"))
+            .args(["scan", "github", "--public-events", "--no-update-check"])
+            .assert()
+            .failure()
+            .stderr(contains("at least one --user or --user-file"));
+    }
+
+    #[test]
+    fn scan_github_public_events_rejects_orgs() {
+        Command::new(assert_cmd::cargo::cargo_bin!("kingfisher"))
+            .args([
+                "scan",
+                "github",
+                "--public-events",
+                "--organization",
+                "testorg",
+                "--user",
+                "testuser",
+                "--no-update-check",
+            ])
+            .assert()
+            .failure()
+            .stderr(contains("supports --user and --user-file only"));
+    }
+
+    #[test]
+    fn scan_github_public_events_rejects_list_only() {
+        Command::new(assert_cmd::cargo::cargo_bin!("kingfisher"))
+            .args([
+                "scan",
+                "github",
+                "--public-events",
+                "--user",
+                "testuser",
+                "--list-only",
+                "--no-update-check",
+            ])
+            .assert()
+            .failure()
+            .stderr(contains("--list-only cannot be used with --public-events"));
+    }
+
+    #[test]
+    fn scan_github_user_file_requires_public_events() {
+        let users = tempfile::NamedTempFile::new().expect("create user file");
+        std::fs::write(users.path(), "alice\n").expect("write user file");
+
+        Command::new(assert_cmd::cargo::cargo_bin!("kingfisher"))
+            .args([
+                "scan",
+                "github",
+                "--user-file",
+                users.path().to_str().expect("path should be utf-8"),
+                "--no-update-check",
+            ])
+            .assert()
+            .failure()
+            .stderr(contains("--user-file can only be used with --public-events"));
+    }
+
+    #[test]
+    fn scan_github_public_events_reports_missing_user_file() {
+        Command::new(assert_cmd::cargo::cargo_bin!("kingfisher"))
+            .args([
+                "scan",
+                "github",
+                "--public-events",
+                "--user-file",
+                "/path/to/missing/github-users.txt",
+                "--no-update-check",
+            ])
+            .assert()
+            .failure()
+            .stderr(contains("Failed to read GitHub public event user file"));
+    }
+
+    #[test]
+    fn scan_github_public_events_accepts_user_file() {
+        let users = tempfile::NamedTempFile::new().expect("create user file");
+        std::fs::write(users.path(), "alice\n# comment\n@bob\nalice\n").expect("write user file");
+
+        Command::new(assert_cmd::cargo::cargo_bin!("kingfisher"))
+            .args([
+                "scan",
+                "github",
+                "--public-events",
+                "--user-file",
+                users.path().to_str().expect("path should be utf-8"),
+                "--list-only",
+                "--no-update-check",
+            ])
+            .assert()
+            .failure()
+            .stderr(contains("--list-only cannot be used with --public-events"));
     }
 }
 

@@ -1121,6 +1121,12 @@ fn describe_scan_target(args: &InputSpecifierArgs) -> Option<String> {
     if !args.git_url.is_empty() {
         return Some(join_brief(&args.git_url, "git URLs"));
     }
+    if !args.github_event_user.is_empty() {
+        return Some(format!(
+            "github public events: {}",
+            join_brief(&args.github_event_user, "github users")
+        ));
+    }
     if !args.github_user.is_empty() {
         return Some(format!("github user: {}", join_brief(&args.github_user, "github users")));
     }
@@ -1651,6 +1657,8 @@ fn create_default_scan_args() -> cli::commands::scan::ScanArgs {
             all_github_organizations: false,
             github_api_url: url::Url::parse("https://api.github.com/").unwrap(),
             github_repo_type: GitHubRepoType::Source,
+            github_event_user: Vec::new(),
+            github_event_lookback_hours: 24,
             // new GitLab defaults
             gitlab_user: Vec::new(),
             gitlab_group: Vec::new(),

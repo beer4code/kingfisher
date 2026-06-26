@@ -368,6 +368,46 @@ pub async fn enumerate_github_repos(
     Ok(repo_urls)
 }
 
+pub async fn enumerate_github_event_targets(
+    args: &scan::ScanArgs,
+    global_args: &global::GlobalArgs,
+) -> Result<Vec<github::GitHubEventScanTarget>> {
+    let users = &args.input_specifier_args.github_event_user;
+    if users.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut progress = if global_args.use_progress() {
+        let style = ProgressStyle::with_template("{spinner} {msg} {pos}/{len} [{elapsed_precise}]")
+            .expect("progress bar style template should compile");
+        let pb = ProgressBar::new(users.len() as u64)
+            .with_style(style)
+            .with_message("Enumerating GitHub public events...");
+        pb.enable_steady_tick(Duration::from_millis(500));
+        pb
+    } else {
+        ProgressBar::hidden()
+    };
+
+    let targets = github::enumerate_public_event_targets(
+        users,
+        args.input_specifier_args.github_event_lookback_hours,
+        args.input_specifier_args.github_api_url.clone(),
+        global_args.ignore_certs,
+        &args.input_specifier_args.github_exclude,
+        args.input_specifier_args.repo_clone_limit,
+        Some(&mut progress),
+    )
+    .await
+    .context("Failed to enumerate GitHub public events")?;
+
+    progress.finish_with_message(format!(
+        "Found {} GitHub public event scan targets",
+        HumanCount(targets.len() as u64)
+    ));
+    Ok(targets)
+}
+
 pub async fn enumerate_gitlab_repos(
     args: &scan::ScanArgs,
     global_args: &global::GlobalArgs,

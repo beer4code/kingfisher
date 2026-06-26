@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fs,
     path::PathBuf,
     sync::{
@@ -17,7 +18,7 @@ use tracing::{debug, error, error_span, info, trace};
 
 use crate::{
     access_map, azure, bitbucket,
-    cli::{commands::scan, global},
+    cli::{commands::github::GitHistoryMode, commands::scan, global},
     findings_store,
     findings_store::{FindingsStore, FindingsStoreMessage},
     gitea, github, gitlab,
@@ -35,8 +36,8 @@ use crate::{
     safe_list,
     scanner::{
         AccessMapCollector, clone_or_update_git_repos_streaming, enumerate_azure_repos,
-        enumerate_bitbucket_repos, enumerate_filesystem_inputs, enumerate_github_repos,
-        enumerate_huggingface_repos,
+        enumerate_bitbucket_repos, enumerate_filesystem_inputs, enumerate_github_event_targets,
+        enumerate_github_repos, enumerate_huggingface_repos,
         repos::{
             enumerate_gitea_repos, enumerate_gitlab_repos, enumerate_huggingface_buckets,
             fetch_confluence_pages, fetch_gcs_objects, fetch_git_host_artifacts,
@@ -103,7 +104,10 @@ pub async fn run_async_scan(
     set_redaction_enabled(args.redact);
 
     // ── Phase 2: Repository enumeration ─────────────────────────────────
-    let repo_urls = enumerate_all_repos(args, global_args).await?;
+    let repo_enumeration = enumerate_all_repos(args, global_args).await?;
+    let repo_urls = repo_enumeration.repo_urls;
+    let github_event_targets_by_root =
+        Arc::new(github_event_targets_by_root(&repo_enumeration.github_event_targets, &datastore));
     let huggingface_buckets = enumerate_huggingface_buckets(args, global_args).await?;
 
     let mut input_roots = args.input_specifier_args.path_inputs.clone();
@@ -244,6 +248,7 @@ pub async fn run_async_scan(
             repo_rx,
             repo_clone_handle,
             artifact_handle,
+            Arc::clone(&github_event_targets_by_root),
             &shared_profiler,
             enable_profiling,
             &matcher_stats,
@@ -269,6 +274,7 @@ pub async fn run_async_scan(
         repo_rx,
         repo_clone_handle,
         artifact_handle,
+        Arc::clone(&github_event_targets_by_root),
         &shared_profiler,
         enable_profiling,
         &matcher_stats,
@@ -296,6 +302,11 @@ fn validate_inputs(args: &scan::ScanArgs) -> Result<()> {
             bail!("Invalid input: Path does not exist - {}", path.display());
         }
     }
+    if !args.input_specifier_args.github_event_user.is_empty()
+        && args.input_specifier_args.git_history == GitHistoryMode::None
+    {
+        bail!("GitHub public event scanning requires Git history; remove --git-history none");
+    }
     Ok(())
 }
 
@@ -311,18 +322,25 @@ fn register_safe_list_patterns(args: &scan::ScanArgs) -> Result<()> {
     Ok(())
 }
 
+struct RepoEnumeration {
+    repo_urls: Vec<crate::git_url::GitUrl>,
+    github_event_targets: Vec<github::GitHubEventScanTarget>,
+}
+
 /// Enumerates repositories from all configured platforms, adds wiki URLs, and deduplicates.
 async fn enumerate_all_repos(
     args: &scan::ScanArgs,
     global_args: &global::GlobalArgs,
-) -> Result<Vec<crate::git_url::GitUrl>> {
+) -> Result<RepoEnumeration> {
     let mut repo_urls = enumerate_github_repos(args, global_args).await?;
+    let github_event_targets = enumerate_github_event_targets(args, global_args).await?;
     let gitlab_repo_urls = enumerate_gitlab_repos(args, global_args).await?;
     let gitea_repo_urls = enumerate_gitea_repos(args, global_args).await?;
     let huggingface_repo_urls = enumerate_huggingface_repos(args, global_args).await?;
     let bitbucket_repo_urls = enumerate_bitbucket_repos(args, global_args).await?;
     let azure_repo_urls = enumerate_azure_repos(args, global_args).await?;
 
+    repo_urls.extend(github_event_targets.iter().map(|target| target.repo_url.clone()));
     repo_urls.extend(gitlab_repo_urls);
     repo_urls.extend(gitea_repo_urls);
     repo_urls.extend(huggingface_repo_urls);
@@ -355,7 +373,46 @@ async fn enumerate_all_repos(
     repo_urls.sort();
     repo_urls.dedup();
 
-    Ok(repo_urls)
+    Ok(RepoEnumeration { repo_urls, github_event_targets })
+}
+
+fn github_event_targets_by_root(
+    targets: &[github::GitHubEventScanTarget],
+    datastore: &Arc<Mutex<FindingsStore>>,
+) -> HashMap<PathBuf, Vec<github::GitHubEventScanTarget>> {
+    let ds = datastore.lock().unwrap();
+    let mut by_root: HashMap<PathBuf, Vec<github::GitHubEventScanTarget>> = HashMap::new();
+    for target in targets {
+        by_root.entry(ds.clone_destination(&target.repo_url)).or_default().push(target.clone());
+    }
+    for targets in by_root.values_mut() {
+        targets.sort();
+        targets.dedup();
+    }
+    by_root
+}
+
+fn scan_args_for_github_event_target(
+    args: &scan::ScanArgs,
+    target: &github::GitHubEventScanTarget,
+) -> scan::ScanArgs {
+    let mut target_args = args.clone();
+    let input = &mut target_args.input_specifier_args;
+    input.since_commit = None;
+    input.staged = false;
+    input.branch = None;
+    input.branch_root = false;
+    input.branch_root_commit = None;
+
+    match &target.selector {
+        github::GitHubEventScanSelector::Repository => {}
+        github::GitHubEventScanSelector::Branch(ref_name)
+        | github::GitHubEventScanSelector::Commit(ref_name) => {
+            input.branch = Some(ref_name.clone());
+        }
+    }
+
+    target_args
 }
 
 /// Spawns a background thread to clone/update git repositories, streaming results via a channel.
@@ -701,6 +758,7 @@ async fn run_sequential_scan(
     repo_rx: crossbeam_channel::Receiver<PathBuf>,
     repo_clone_handle: Option<std::thread::JoinHandle<()>>,
     artifact_handle: std::thread::JoinHandle<Result<()>>,
+    github_event_targets_by_root: Arc<HashMap<PathBuf, Vec<github::GitHubEventScanTarget>>>,
     shared_profiler: &Arc<ConcurrentRuleProfiler>,
     enable_profiling: bool,
     matcher_stats: &Arc<Mutex<MatcherStats>>,
@@ -734,16 +792,32 @@ async fn run_sequential_scan(
         }
 
         for repo_root in repo_rx.iter() {
-            enumerate_filesystem_inputs(
-                args,
-                datastore.clone(),
-                std::slice::from_ref(&repo_root),
-                progress_enabled,
-                rules_db,
-                enable_profiling,
-                Arc::clone(shared_profiler),
-                matcher_stats.as_ref(),
-            )?;
+            if let Some(targets) = github_event_targets_by_root.get(&repo_root) {
+                for target in targets {
+                    let target_args = scan_args_for_github_event_target(args, target);
+                    enumerate_filesystem_inputs(
+                        &target_args,
+                        datastore.clone(),
+                        std::slice::from_ref(&repo_root),
+                        progress_enabled,
+                        rules_db,
+                        enable_profiling,
+                        Arc::clone(shared_profiler),
+                        matcher_stats.as_ref(),
+                    )?;
+                }
+            } else {
+                enumerate_filesystem_inputs(
+                    args,
+                    datastore.clone(),
+                    std::slice::from_ref(&repo_root),
+                    progress_enabled,
+                    rules_db,
+                    enable_profiling,
+                    Arc::clone(shared_profiler),
+                    matcher_stats.as_ref(),
+                )?;
+            }
             if auto_cleanup_clones && let Err(e) = fs::remove_dir_all(&repo_root) {
                 debug!("Failed to remove scanned clone {}: {e}", repo_root.display());
             }
@@ -824,6 +898,7 @@ async fn run_parallel_scan(
     repo_rx: crossbeam_channel::Receiver<PathBuf>,
     repo_clone_handle: Option<std::thread::JoinHandle<()>>,
     artifact_handle: std::thread::JoinHandle<Result<()>>,
+    github_event_targets_by_root: Arc<HashMap<PathBuf, Vec<github::GitHubEventScanTarget>>>,
     shared_profiler: &Arc<ConcurrentRuleProfiler>,
     enable_profiling: bool,
     matcher_stats: &Arc<Mutex<MatcherStats>>,
@@ -964,208 +1039,228 @@ async fn run_parallel_scan(
                 UserPath,
                 Streamed,
             }
-            let spawn_repo_scan = |root: PathBuf, source: ScanRootSource| {
-                // Acquire one permit from the pool before queueing into rayon.
-                // This is the load-bearing call for backpressure: when rayon
-                // is saturated and no scan has finished to release a permit,
-                // this `recv` blocks the for-loop driving `repo_rx.iter()`,
-                // which causes the bounded `repo_rx` to fill, which causes
-                // the cloner's bounded `ready_tx` send to block, which slows
-                // the cloner pool. Without it, 5,000 closures pile into
-                // rayon's unbounded work queue and the only thing limiting
-                // memory is process death.
-                permit_take.recv().expect("permit pool closed unexpectedly");
+            let spawn_repo_scan =
+                |root: PathBuf,
+                 source: ScanRootSource,
+                 event_targets: Option<Vec<github::GitHubEventScanTarget>>| {
+                    // Acquire one permit from the pool before queueing into rayon.
+                    // This is the load-bearing call for backpressure: when rayon
+                    // is saturated and no scan has finished to release a permit,
+                    // this `recv` blocks the for-loop driving `repo_rx.iter()`,
+                    // which causes the bounded `repo_rx` to fill, which causes
+                    // the cloner's bounded `ready_tx` send to block, which slows
+                    // the cloner pool. Without it, 5,000 closures pile into
+                    // rayon's unbounded work queue and the only thing limiting
+                    // memory is process death.
+                    permit_take.recv().expect("permit pool closed unexpectedly");
 
-                let repo_rules = repo_rules.clone();
-                let base_clone_root = base_clone_root.clone();
-                let baseline_path = Arc::clone(baseline_path);
-                let shared_profiler = Arc::clone(shared_profiler);
-                let args = args.clone();
-                let root = root.clone();
-                let validation_deps = validation_deps.clone();
-                let matcher_stats = Arc::clone(matcher_stats);
-                let rt_handle = rt_handle.clone();
-                let ran_repo_scan = Arc::clone(&ran_repo_scan);
-                let repo_errors = Arc::clone(&repo_errors);
-                let datastore = Arc::clone(datastore);
-                let access_map = access_map_collector.clone();
-                let permit_release = permit_return.clone();
-                let scan_counter = Arc::clone(&active_scans);
+                    let repo_rules = repo_rules.clone();
+                    let base_clone_root = base_clone_root.clone();
+                    let baseline_path = Arc::clone(baseline_path);
+                    let shared_profiler = Arc::clone(shared_profiler);
+                    let args = args.clone();
+                    let root = root.clone();
+                    let event_targets = event_targets.clone();
+                    let validation_deps = validation_deps.clone();
+                    let matcher_stats = Arc::clone(matcher_stats);
+                    let rt_handle = rt_handle.clone();
+                    let ran_repo_scan = Arc::clone(&ran_repo_scan);
+                    let repo_errors = Arc::clone(&repo_errors);
+                    let datastore = Arc::clone(datastore);
+                    let access_map = access_map_collector.clone();
+                    let permit_release = permit_return.clone();
+                    let scan_counter = Arc::clone(&active_scans);
 
-                scan_counter.fetch_add(1, Ordering::Relaxed);
+                    scan_counter.fetch_add(1, Ordering::Relaxed);
 
-                scope.spawn(move |_| {
-                    // Release the permit and decrement the active-scan
-                    // counter when this closure exits — including via early
-                    // return, error, or unwinding panic in debug builds.
-                    // (`panic = "abort"` in release means the process dies
-                    // before Drop runs, but that's fine: the permit pool
-                    // dies with it.)
-                    struct ScanGuard {
-                        permit_release: crossbeam_channel::Sender<()>,
-                        scan_counter: Arc<AtomicUsize>,
-                    }
-                    impl Drop for ScanGuard {
-                        fn drop(&mut self) {
-                            self.scan_counter.fetch_sub(1, Ordering::Relaxed);
-                            // Bounded to the same cap we pre-filled, and we
-                            // only send one permit per `recv`, so this can
-                            // never fail with `Full`. Use `try_send` so a
-                            // logic bug surfaces immediately rather than
-                            // blocking a worker thread on cleanup. A failure
-                            // here means the permit accounting is broken, so
-                            // assert in debug/test builds; in release we log
-                            // instead of panicking, since unwinding out of a
-                            // `Drop` (this guard drops during panic unwind)
-                            // would abort the process.
-                            if let Err(err) = self.permit_release.try_send(()) {
-                                debug_assert!(
-                                    false,
-                                    "permit pool overflowed or disconnected on cleanup: {err}"
-                                );
-                                tracing::error!(
-                                    "permit pool overflowed or disconnected on cleanup: {err}"
-                                );
+                    scope.spawn(move |_| {
+                        // Release the permit and decrement the active-scan
+                        // counter when this closure exits — including via early
+                        // return, error, or unwinding panic in debug builds.
+                        // (`panic = "abort"` in release means the process dies
+                        // before Drop runs, but that's fine: the permit pool
+                        // dies with it.)
+                        struct ScanGuard {
+                            permit_release: crossbeam_channel::Sender<()>,
+                            scan_counter: Arc<AtomicUsize>,
+                        }
+                        impl Drop for ScanGuard {
+                            fn drop(&mut self) {
+                                self.scan_counter.fetch_sub(1, Ordering::Relaxed);
+                                // Bounded to the same cap we pre-filled, and we
+                                // only send one permit per `recv`, so this can
+                                // never fail with `Full`. Use `try_send` so a
+                                // logic bug surfaces immediately rather than
+                                // blocking a worker thread on cleanup. A failure
+                                // here means the permit accounting is broken, so
+                                // assert in debug/test builds; in release we log
+                                // instead of panicking, since unwinding out of a
+                                // `Drop` (this guard drops during panic unwind)
+                                // would abort the process.
+                                if let Err(err) = self.permit_release.try_send(()) {
+                                    debug_assert!(
+                                        false,
+                                        "permit pool overflowed or disconnected on cleanup: {err}"
+                                    );
+                                    tracing::error!(
+                                        "permit pool overflowed or disconnected on cleanup: {err}"
+                                    );
+                                }
                             }
                         }
-                    }
-                    let _guard = ScanGuard { permit_release, scan_counter };
+                        let _guard = ScanGuard { permit_release, scan_counter };
 
-                    let result: Result<()> = (|| {
-                        let repo_datastore =
-                            Arc::new(Mutex::new(FindingsStore::new(base_clone_root.clone())));
-                        {
-                            let mut ds = repo_datastore.lock().unwrap();
-                            ds.record_rules(&repo_rules);
-                        }
+                        let result: Result<()> = (|| {
+                            let repo_datastore =
+                                Arc::new(Mutex::new(FindingsStore::new(base_clone_root.clone())));
+                            {
+                                let mut ds = repo_datastore.lock().unwrap();
+                                ds.record_rules(&repo_rules);
+                            }
 
-                        let repo_matcher_stats = Mutex::new(MatcherStats::default());
+                            let repo_matcher_stats = Mutex::new(MatcherStats::default());
 
-                        enumerate_filesystem_inputs(
-                            &args,
-                            Arc::clone(&repo_datastore),
-                            std::slice::from_ref(&root),
-                            progress_enabled,
-                            rules_db,
-                            enable_profiling,
-                            Arc::clone(&shared_profiler),
-                            &repo_matcher_stats,
-                        )
-                        .and_then(|_| {
-                            deduplicate_new_matches(&repo_datastore, global_args, &args, 0)
-                        })?;
-
-                        if args.baseline_file.is_some() || args.manage_baseline {
-                            let mut ds = repo_datastore.lock().unwrap();
-                            crate::baseline::apply_baseline(
-                                &mut ds,
-                                baseline_path.as_ref(),
-                                args.manage_baseline,
-                                std::slice::from_ref(&root),
-                            )?;
-                        }
-
-                        if let Some(validation) = validation_deps.clone() {
-                            let (parser, clients, cache, rate_limiter, provider_endpoints) = (
-                                &validation.0,
-                                &validation.1,
-                                &validation.2,
-                                &validation.3,
-                                &validation.4,
-                            );
-                            let match_count =
-                                { repo_datastore.lock().unwrap().get_matches().len() };
-                            if match_count > 0 {
-                                rt_handle.block_on(run_secret_validation(
+                            if let Some(event_targets) = &event_targets {
+                                for target in event_targets {
+                                    let target_args =
+                                        scan_args_for_github_event_target(&args, target);
+                                    enumerate_filesystem_inputs(
+                                        &target_args,
+                                        Arc::clone(&repo_datastore),
+                                        std::slice::from_ref(&root),
+                                        progress_enabled,
+                                        rules_db,
+                                        enable_profiling,
+                                        Arc::clone(&shared_profiler),
+                                        &repo_matcher_stats,
+                                    )?;
+                                }
+                            } else {
+                                enumerate_filesystem_inputs(
+                                    &args,
                                     Arc::clone(&repo_datastore),
-                                    parser,
-                                    clients,
-                                    cache,
-                                    args.num_jobs,
-                                    Some(0..match_count),
-                                    access_map.clone(),
-                                    rate_limiter.clone(),
-                                    provider_endpoints.clone(),
-                                    Duration::from_secs(args.validation_timeout),
-                                    args.validation_retries,
-                                    effective_max_validation_body_len(&args),
-                                ))?;
+                                    std::slice::from_ref(&root),
+                                    progress_enabled,
+                                    rules_db,
+                                    enable_profiling,
+                                    Arc::clone(&shared_profiler),
+                                    &repo_matcher_stats,
+                                )?;
                             }
-                        }
+                            deduplicate_new_matches(&repo_datastore, global_args, &args, 0)?;
 
-                        {
-                            let mut global_stats = matcher_stats.lock().unwrap();
-                            global_stats.update(&repo_matcher_stats.lock().unwrap());
-                        }
+                            if args.baseline_file.is_some() || args.manage_baseline {
+                                let mut ds = repo_datastore.lock().unwrap();
+                                crate::baseline::apply_baseline(
+                                    &mut ds,
+                                    baseline_path.as_ref(),
+                                    args.manage_baseline,
+                                    std::slice::from_ref(&root),
+                                )?;
+                            }
 
-                        if !output_to_file {
-                            // Per-repo emit goes to stdout from many rayon
-                            // threads in parallel. Render the report into
-                            // an in-memory buffer first (CPU work, no
-                            // contention), then take the stdout lock only
-                            // around the final atomic write+flush so two
-                            // threads' envelopes can't interleave and
-                            // corrupt JSONL output.
-                            let mut buf: Vec<u8> = Vec::with_capacity(8 * 1024);
-                            crate::reporter::run_with_writer(
-                                global_args,
-                                Arc::clone(&repo_datastore),
-                                &args,
-                                None,
-                                &mut buf,
-                            )
-                            .context("Failed to run report command")?;
-                            if !buf.is_empty() {
-                                use std::io::Write;
-                                let mut stdout = std::io::stdout().lock();
-                                // Treat a closed downstream pipe (e.g.
-                                // `kingfisher scan ... | head`) as a normal
-                                // early exit, matching `summary.rs::safe_println!`.
-                                // Any other I/O error is a real failure.
-                                if let Err(err) = stdout.write_all(&buf) {
-                                    if err.kind() == std::io::ErrorKind::BrokenPipe {
-                                        std::process::exit(0);
-                                    }
-                                    return Err(err.into());
-                                }
-                                if let Err(err) = stdout.flush() {
-                                    if err.kind() == std::io::ErrorKind::BrokenPipe {
-                                        std::process::exit(0);
-                                    }
-                                    return Err(err.into());
+                            if let Some(validation) = validation_deps.clone() {
+                                let (parser, clients, cache, rate_limiter, provider_endpoints) = (
+                                    &validation.0,
+                                    &validation.1,
+                                    &validation.2,
+                                    &validation.3,
+                                    &validation.4,
+                                );
+                                let match_count =
+                                    { repo_datastore.lock().unwrap().get_matches().len() };
+                                if match_count > 0 {
+                                    rt_handle.block_on(run_secret_validation(
+                                        Arc::clone(&repo_datastore),
+                                        parser,
+                                        clients,
+                                        cache,
+                                        args.num_jobs,
+                                        Some(0..match_count),
+                                        access_map.clone(),
+                                        rate_limiter.clone(),
+                                        provider_endpoints.clone(),
+                                        Duration::from_secs(args.validation_timeout),
+                                        args.validation_retries,
+                                        effective_max_validation_body_len(&args),
+                                    ))?;
                                 }
                             }
+
+                            {
+                                let mut global_stats = matcher_stats.lock().unwrap();
+                                global_stats.update(&repo_matcher_stats.lock().unwrap());
+                            }
+
+                            if !output_to_file {
+                                // Per-repo emit goes to stdout from many rayon
+                                // threads in parallel. Render the report into
+                                // an in-memory buffer first (CPU work, no
+                                // contention), then take the stdout lock only
+                                // around the final atomic write+flush so two
+                                // threads' envelopes can't interleave and
+                                // corrupt JSONL output.
+                                let mut buf: Vec<u8> = Vec::with_capacity(8 * 1024);
+                                crate::reporter::run_with_writer(
+                                    global_args,
+                                    Arc::clone(&repo_datastore),
+                                    &args,
+                                    None,
+                                    &mut buf,
+                                )
+                                .context("Failed to run report command")?;
+                                if !buf.is_empty() {
+                                    use std::io::Write;
+                                    let mut stdout = std::io::stdout().lock();
+                                    // Treat a closed downstream pipe (e.g.
+                                    // `kingfisher scan ... | head`) as a normal
+                                    // early exit, matching `summary.rs::safe_println!`.
+                                    // Any other I/O error is a real failure.
+                                    if let Err(err) = stdout.write_all(&buf) {
+                                        if err.kind() == std::io::ErrorKind::BrokenPipe {
+                                            std::process::exit(0);
+                                        }
+                                        return Err(err.into());
+                                    }
+                                    if let Err(err) = stdout.flush() {
+                                        if err.kind() == std::io::ErrorKind::BrokenPipe {
+                                            std::process::exit(0);
+                                        }
+                                        return Err(err.into());
+                                    }
+                                }
+                            }
+
+                            {
+                                let mut ds = datastore.lock().unwrap();
+                                ds.merge_from(&repo_datastore.lock().unwrap(), !args.no_dedup);
+                            }
+
+                            ran_repo_scan.store(true, Ordering::Relaxed);
+                            Ok(())
+                        })();
+
+                        if let Err(e) = result {
+                            error!("Repository scan failed: {e}");
+                            repo_errors.lock().unwrap().push(e);
                         }
 
+                        if matches!(source, ScanRootSource::Streamed)
+                            && auto_cleanup_clones
+                            && let Err(e) = fs::remove_dir_all(&root)
                         {
-                            let mut ds = datastore.lock().unwrap();
-                            ds.merge_from(&repo_datastore.lock().unwrap(), !args.no_dedup);
+                            debug!("Failed to remove scanned clone {}: {e}", root.display());
                         }
-
-                        ran_repo_scan.store(true, Ordering::Relaxed);
-                        Ok(())
-                    })();
-
-                    if let Err(e) = result {
-                        error!("Repository scan failed: {e}");
-                        repo_errors.lock().unwrap().push(e);
-                    }
-
-                    if matches!(source, ScanRootSource::Streamed)
-                        && auto_cleanup_clones
-                        && let Err(e) = fs::remove_dir_all(&root)
-                    {
-                        debug!("Failed to remove scanned clone {}: {e}", root.display());
-                    }
-                });
-            };
+                    });
+                };
 
             for root in repo_roots.iter().cloned() {
-                spawn_repo_scan(root, ScanRootSource::UserPath);
+                spawn_repo_scan(root, ScanRootSource::UserPath, None);
             }
 
             for root in repo_rx.iter() {
-                spawn_repo_scan(root, ScanRootSource::Streamed);
+                let event_targets = github_event_targets_by_root.get(&root).cloned();
+                spawn_repo_scan(root, ScanRootSource::Streamed, event_targets);
             }
         });
 

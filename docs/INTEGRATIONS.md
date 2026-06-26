@@ -153,6 +153,40 @@ kingfisher scan github --organization my-org
 kingfisher scan github --organization my-org --repo-clone-limit 500
 ```
 
+### Monitor public GitHub events for users
+
+Use `--public-events` to scan recent public activity for one or more GitHub
+users. Repeat `--user` for multiple actors, or pass `--user-file` with one
+username per line. Blank lines and lines beginning with `#` are ignored, and a
+leading `@` is accepted.
+
+For `PushEvent`, Kingfisher scans each commit SHA in the event. For branch
+creation events, it scans the created branch. For repository creation events,
+it scans the whole repository. Set `KF_GITHUB_TOKEN` when possible to raise API
+rate limits.
+
+```bash
+# Monitor two users for public events from the last 12 hours
+kingfisher scan github --public-events \
+  --user alice \
+  --user bob \
+  --event-lookback-hours 12
+
+# Monitor a file of users
+cat > github-users.txt <<'EOF'
+alice
+bob
+# team aliases are fine as comments
+@charlie
+EOF
+
+KF_GITHUB_TOKEN="ghp_…" kingfisher scan github --public-events \
+  --user-file github-users.txt \
+  --event-lookback-hours 24 \
+  --repo-clone-limit 200 \
+  --github-exclude alice/*-archive
+```
+
 ### Skip specific GitHub repositories during enumeration
 
 Repeat `--github-exclude` for every repository you want to ignore when scanning

@@ -87,6 +87,14 @@ pub struct InputSpecifierArgs {
     #[arg(long, default_value_t = GitHubRepoType::Source, hide = true)]
     pub github_repo_type: GitHubRepoType,
 
+    /// Scan public GitHub events for these users.
+    #[arg(skip)]
+    pub github_event_user: Vec<String>,
+
+    /// Look back this many hours when scanning public GitHub events.
+    #[arg(skip)]
+    pub github_event_lookback_hours: u64,
+
     // GitLab Options
     /// Scan repositories belonging to the specified GitLab user
     #[arg(long, hide = true)]
@@ -453,6 +461,7 @@ impl InputSpecifierArgs {
             || !self.github_user.is_empty()
             || !self.github_organization.is_empty()
             || self.all_github_organizations
+            || !self.github_event_user.is_empty()
             || !self.gitlab_user.is_empty()
             || !self.gitlab_group.is_empty()
             || self.all_gitlab_groups
