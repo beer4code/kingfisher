@@ -132,6 +132,71 @@ rules:
     }
 
     #[test]
+    fn cli_scan_applies_repeated_include_and_exclude_rule_flags() {
+        let temp = tempdir().expect("tempdir should be created");
+        let rules_dir = temp.path().join("rules");
+        let input_dir = temp.path().join("repo");
+        let output_toon = temp.path().join("findings.toon");
+
+        fs::create_dir_all(&rules_dir).expect("rules directory should be created");
+        fs::create_dir_all(&input_dir).expect("input directory should be created");
+        fs::write(
+            rules_dir.join("demo.yml"),
+            r#"
+rules:
+  - id: kingfisher.demo.1
+    name: Demo secret 1
+    pattern: '(demo_secret_1234)'
+    confidence: medium
+  - id: kingfisher.demo.2
+    name: Demo secret 2
+    pattern: '(demo_secret_5678)'
+    confidence: medium
+  - id: kingfisher.other.1
+    name: Other secret
+    pattern: '(other_secret_abcd)'
+    confidence: medium
+"#,
+        )
+        .expect("rules should be written");
+        fs::write(
+            input_dir.join("README.txt"),
+            "demo_secret_1234\ndemo_secret_5678\nother_secret_abcd\n",
+        )
+        .expect("seed file should be written");
+
+        Command::new(assert_cmd::cargo::cargo_bin!("kingfisher"))
+            .args([
+                "scan",
+                input_dir.to_str().unwrap(),
+                "--format",
+                "toon",
+                "--output",
+                output_toon.to_str().unwrap(),
+                "--rules-path",
+                rules_dir.to_str().unwrap(),
+                "--load-builtins=false",
+                "--rule",
+                "kingfisher.demo",
+                "--rule",
+                "kingfisher.other.1",
+                "--exclude-rule",
+                "kingfisher.demo.2",
+                "--exclude-rule",
+                "kingfisher.other.1",
+                "--no-validate",
+                "--no-update-check",
+            ])
+            .assert()
+            .code(200);
+
+        let toon = fs::read_to_string(&output_toon).expect("toon report should be written");
+        let decoded: Value = toon_format::decode_default(&toon).expect("toon should decode");
+        assert_eq!(decoded["scan"]["summary"]["findings"], 1);
+        assert_eq!(decoded["findings"][0]["rule_id"], "kingfisher.demo.1");
+    }
+
+    #[test]
     fn cli_rule_cache_refreshes_when_external_rules_path_changes() {
         let temp = tempdir().expect("tempdir should be created");
         let rules_dir = temp.path().join("rules");

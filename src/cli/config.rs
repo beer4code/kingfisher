@@ -512,7 +512,7 @@ scan:
   git_repo_timeout: 600
 rules:
   enabled: ["all", "default"]
-  disabled: ["kingfisher.github.1"]
+  disabled: ["kingfisher.github.1", "kingfisher.github.2"]
   paths: ["./custom-rules"]
   load_builtins: true
   cache: true
@@ -564,7 +564,7 @@ git:
         assert_eq!(cfg.scan.redact, Some(true));
         assert_eq!(cfg.scan.jobs, Some(8));
         assert_eq!(cfg.rules.enabled, vec!["all", "default"]);
-        assert_eq!(cfg.rules.disabled, vec!["kingfisher.github.1"]);
+        assert_eq!(cfg.rules.disabled, vec!["kingfisher.github.1", "kingfisher.github.2"]);
         assert_eq!(cfg.rules.paths.len(), 1);
         assert_eq!(cfg.rules.cache, Some(true));
         assert_eq!(

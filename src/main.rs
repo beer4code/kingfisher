@@ -2265,6 +2265,40 @@ rules:
     }
 
     #[test]
+    fn cli_rule_and_exclude_rule_flags_are_repeated_and_preserved() {
+        let (args, matches) = parse(&[
+            "kingfisher",
+            "scan",
+            "--rule",
+            "kingfisher.github.1",
+            "--rule",
+            "kingfisher.github.2",
+            "--exclude-rule",
+            "kingfisher.openai.1",
+            "--exclude-rule",
+            "kingfisher.openai.2",
+            ".",
+        ]);
+        let mut global_args = args.global_args.clone();
+        let mut scan_args = into_scan(args);
+        super::apply_config(
+            &mut scan_args,
+            &mut global_args,
+            &kingfisher::cli::config::KingfisherConfig::default(),
+            matches.subcommand_matches("scan"),
+        );
+
+        assert_eq!(
+            scan_args.rules.rule,
+            vec!["kingfisher.github.1".to_string(), "kingfisher.github.2".to_string()]
+        );
+        assert_eq!(
+            scan_args.rules.exclude_rule,
+            vec!["kingfisher.openai.1".to_string(), "kingfisher.openai.2".to_string()]
+        );
+    }
+
+    #[test]
     fn rule_cache_config_and_cli_precedence_respects_opt_out() {
         let cfg = parse_str(
             r#"

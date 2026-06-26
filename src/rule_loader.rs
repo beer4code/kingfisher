@@ -258,6 +258,18 @@ mod tests {
     }
 
     #[test]
+    fn resolves_multiple_enabled_and_excluded_selectors() {
+        let loaded = loaded_rules(
+            Some(vec!["kingfisher.demo", "kingfisher.other"]),
+            vec!["kingfisher.demo.1", "kingfisher.other.1"],
+        );
+        let ids: Vec<_> =
+            loaded.resolve_enabled_rules().unwrap().into_iter().map(Rule::id).collect();
+
+        assert_eq!(ids, vec!["kingfisher.demo.2"]);
+    }
+
+    #[test]
     fn unknown_exclusion_selector_is_an_error() {
         let loaded = loaded_rules(None, vec!["kingfisher.missing.1"]);
 
