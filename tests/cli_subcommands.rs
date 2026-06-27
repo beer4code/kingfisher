@@ -300,7 +300,16 @@ mod github {
     }
 
     #[test]
-    fn scan_github_public_events_accepts_user_file() {
+    fn scan_github_public_events_rejects_invalid_user() {
+        Command::new(assert_cmd::cargo::cargo_bin!("kingfisher"))
+            .args(["scan", "github", "--public-events", "--user", "bad/user", "--no-update-check"])
+            .assert()
+            .failure()
+            .stderr(contains("Invalid GitHub username in --user"));
+    }
+
+    #[test]
+    fn scan_github_public_events_user_file_is_parsed_before_list_only_error() {
         let users = tempfile::NamedTempFile::new().expect("create user file");
         std::fs::write(users.path(), "alice\n# comment\n@bob\nalice\n").expect("write user file");
 

@@ -222,13 +222,13 @@ pub async fn download_messages_to_dir(
     ignore_certs: bool,
     output_dir: &PathBuf,
 ) -> Result<Vec<(PathBuf, String)>> {
-    std::fs::create_dir_all(output_dir)?;
+    tokio::fs::create_dir_all(output_dir).await?;
     let messages = search_messages(api_url, query, max_results, ignore_certs).await?;
     let mut paths = Vec::new();
     for msg in messages {
         let ts = msg.ts.replace('.', "_");
         let file = output_dir.join(format!("{}_{}.json", msg.channel.id, ts));
-        std::fs::write(&file, serde_json::to_vec(&msg)?)?;
+        tokio::fs::write(&file, serde_json::to_vec(&msg)?).await?;
         paths.push((file, msg.permalink));
     }
     Ok(paths)
@@ -241,7 +241,7 @@ pub async fn download_files_to_dir(
     ignore_certs: bool,
     output_dir: &PathBuf,
 ) -> Result<Vec<(PathBuf, String)>> {
-    std::fs::create_dir_all(output_dir)?;
+    tokio::fs::create_dir_all(output_dir).await?;
     let files = search_files(api_url, query, max_results, ignore_certs).await?;
     let token = slack_token()?;
     let client = slack_client(ignore_certs)?;

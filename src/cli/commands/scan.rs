@@ -370,12 +370,19 @@ fn load_github_event_users(
     cli_users: Vec<String>,
     user_file: Option<&Path>,
 ) -> anyhow::Result<Vec<String>> {
+    fn is_valid_github_username(user: &str) -> bool {
+        user.len() <= 39
+            && !user.starts_with('-')
+            && !user.ends_with('-')
+            && user.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    }
+
     fn push_user(users: &mut Vec<String>, raw: &str, source: &str) -> anyhow::Result<()> {
         let user = raw.trim().trim_start_matches('@');
         if user.is_empty() {
             return Ok(());
         }
-        if user.chars().any(char::is_whitespace) {
+        if !is_valid_github_username(user) {
             bail!("Invalid GitHub username in {source}: {user:?}");
         }
         if !users.iter().any(|existing| existing.eq_ignore_ascii_case(user)) {

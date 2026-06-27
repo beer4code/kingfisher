@@ -215,17 +215,6 @@ fn event_created_at(event: &GitHubEvent) -> Option<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(&event.created_at).ok().map(|dt| dt.with_timezone(&Utc))
 }
 
-fn payload_ref_name(payload: &Value) -> Option<String> {
-    for key in ["ref", "branch", "ref_name"] {
-        if let Some(value) = payload.get(key).and_then(|v| v.as_str())
-            && let Some(cleaned) = clean_ref_name(value)
-        {
-            return Some(cleaned);
-        }
-    }
-    None
-}
-
 fn targets_from_event(api_base: &Url, event: GitHubEvent) -> Vec<GitHubEventScanTarget> {
     let Some(repo_url) = repo_clone_url_from_event(api_base, &event.repo.name) else {
         return Vec::new();
@@ -262,11 +251,6 @@ fn targets_from_event(api_base: &Url, event: GitHubEvent) -> Vec<GitHubEventScan
                     }
                     _ => {}
                 }
-            }
-        }
-        "BranchEvent" => {
-            if let Some(ref_name) = payload_ref_name(&event.payload) {
-                selectors.push(GitHubEventScanSelector::Branch(ref_name));
             }
         }
         _ => {}
@@ -648,7 +632,7 @@ pub async fn enumerate_public_event_targets(
                     && created_at < cutoff
                 {
                     reached_cutoff = true;
-                    continue;
+                    break;
                 }
 
                 for target in targets_from_event(&api_base, event) {
