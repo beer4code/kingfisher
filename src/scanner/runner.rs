@@ -18,7 +18,7 @@ use tracing::{debug, error, error_span, info, trace};
 
 use crate::{
     access_map, azure, bitbucket,
-    cli::{commands::github::GitHistoryMode, commands::scan, global},
+    cli::{commands::scan, global},
     findings_store,
     findings_store::{FindingsStore, FindingsStoreMessage},
     gitea, github, gitlab,
@@ -301,11 +301,6 @@ fn validate_inputs(args: &scan::ScanArgs) -> Result<()> {
             error!("Specified input path does not exist: {}", path.display());
             bail!("Invalid input: Path does not exist - {}", path.display());
         }
-    }
-    if !args.input_specifier_args.github_event_user.is_empty()
-        && args.input_specifier_args.git_history == GitHistoryMode::None
-    {
-        bail!("GitHub public event scanning requires Git history; remove --git-history none");
     }
     Ok(())
 }

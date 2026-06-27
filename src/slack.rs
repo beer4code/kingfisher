@@ -62,6 +62,13 @@ struct SlackFileSearchResponse {
     files: Option<SlackFiles>,
 }
 
+fn next_slack_page(pagination: Option<&SlackPagination>, current_page: u32) -> Option<u32> {
+    let pagination = pagination?;
+    let page_count = pagination.page_count?;
+    let next_page = pagination.page.unwrap_or(current_page).saturating_add(1);
+    (next_page <= page_count).then_some(next_page)
+}
+
 fn slack_token() -> Result<String> {
     std::env::var("KF_SLACK_TOKEN").context("KF_SLACK_TOKEN environment variable must be set")
 }
@@ -130,12 +137,9 @@ pub async fn search_messages(
                 return Ok(messages);
             }
         }
-        let next_page =
-            msgs.pagination.as_ref().and_then(|p| p.page).map(|p| p + 1).unwrap_or(page + 1);
-        let page_count = msgs.pagination.as_ref().and_then(|p| p.page_count).unwrap_or(next_page);
-        if next_page > page_count {
+        let Some(next_page) = next_slack_page(msgs.pagination.as_ref(), page) else {
             break;
-        }
+        };
         page = next_page;
     }
 
@@ -184,17 +188,9 @@ pub async fn search_files(
                 return Ok(files);
             }
         }
-        let next_page = file_results
-            .pagination
-            .as_ref()
-            .and_then(|p| p.page)
-            .map(|p| p + 1)
-            .unwrap_or(page + 1);
-        let page_count =
-            file_results.pagination.as_ref().and_then(|p| p.page_count).unwrap_or(next_page);
-        if next_page > page_count {
+        let Some(next_page) = next_slack_page(file_results.pagination.as_ref(), page) else {
             break;
-        }
+        };
         page = next_page;
     }
 
@@ -300,12 +296,37 @@ pub async fn download_files_to_dir(
 
 #[cfg(test)]
 mod tests {
-    use super::sanitize_filename_component;
+    use super::{SlackPagination, next_slack_page, sanitize_filename_component};
 
     #[test]
     fn sanitize_filename_component_prevents_path_traversal() {
         assert_eq!(sanitize_filename_component("../../secrets.txt"), "_.._secrets.txt");
         assert_eq!(sanitize_filename_component(".."), "file");
         assert_eq!(sanitize_filename_component("a:b\\c"), "a_b_c");
+    }
+
+    #[test]
+    fn next_slack_page_requires_pagination_metadata() {
+        assert_eq!(next_slack_page(None, 1), None);
+        assert_eq!(
+            next_slack_page(Some(&SlackPagination { page: Some(1), page_count: None }), 1),
+            None
+        );
+    }
+
+    #[test]
+    fn next_slack_page_advances_until_last_page() {
+        assert_eq!(
+            next_slack_page(Some(&SlackPagination { page: Some(1), page_count: Some(3) }), 1),
+            Some(2)
+        );
+        assert_eq!(
+            next_slack_page(Some(&SlackPagination { page: None, page_count: Some(3) }), 2),
+            Some(3)
+        );
+        assert_eq!(
+            next_slack_page(Some(&SlackPagination { page: Some(3), page_count: Some(3) }), 3),
+            None
+        );
     }
 }
