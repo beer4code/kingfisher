@@ -448,13 +448,13 @@ impl ScanCommandArgs {
                     None
                 }
                 ScanInputCommand::Github(args) => {
-                    let specifiers = args.specifiers;
+                    let mut specifiers = args.specifiers;
                     if args.event_user_file.is_some() && !args.public_events {
                         bail!("--user-file can only be used with --public-events");
                     }
                     if args.public_events {
                         let event_users = load_github_event_users(
-                            specifiers.user,
+                            std::mem::take(&mut specifiers.user),
                             args.event_user_file.as_deref(),
                         )?;
                         if event_users.is_empty() {

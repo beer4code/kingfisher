@@ -3,7 +3,7 @@ use std::{collections::HashSet, env, time::Duration};
 use anyhow::{Context, Result, anyhow};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use indicatif::{ProgressBar, ProgressStyle};
-use percent_encoding::{NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
 use reqwest::{StatusCode, Url, header::LINK};
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -13,6 +13,7 @@ use crate::{git_url::GitUrl, validation::GLOBAL_USER_AGENT};
 
 const HUGGINGFACE_ENDPOINT: &str = "https://huggingface.co/";
 const HUGGINGFACE_API: &str = "https://huggingface.co/api/";
+const HUGGINGFACE_PATH_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC.remove(b'/');
 
 #[derive(Debug, Clone, Default)]
 pub struct RepoSpecifiers {
@@ -754,7 +755,7 @@ fn build_exclude_globset(patterns: &[String]) -> Result<Option<GlobSet>> {
 fn bucket_tree_url(api_base: &Url, bucket: &BucketTarget) -> Result<Url> {
     let mut url = api_base.join(&format!("buckets/{}/tree", bucket.bucket_id()))?;
     if let Some(prefix) = bucket.prefix() {
-        let encoded = utf8_percent_encode(prefix, NON_ALPHANUMERIC);
+        let encoded = encode_bucket_path(prefix);
         url = Url::parse(&format!("{url}/{encoded}"))?;
     }
     url.query_pairs_mut().append_pair("recursive", "true");
@@ -762,8 +763,12 @@ fn bucket_tree_url(api_base: &Url, bucket: &BucketTarget) -> Result<Url> {
 }
 
 fn bucket_download_url(endpoint: &Url, bucket_id: &str, path: &str) -> Result<Url> {
-    let encoded = utf8_percent_encode(path, NON_ALPHANUMERIC);
+    let encoded = encode_bucket_path(path);
     Ok(Url::parse(&format!("{endpoint}buckets/{bucket_id}/resolve/{encoded}"))?)
+}
+
+fn encode_bucket_path(path: &str) -> String {
+    utf8_percent_encode(path, HUGGINGFACE_PATH_ENCODE_SET).to_string()
 }
 
 pub async fn visit_bucket_objects<F>(
@@ -922,6 +927,24 @@ mod tests {
             Some(BucketTarget::new("owner/checkpoints".into(), Some("logs".into())))
         );
         assert_eq!(parse_bucket_target("https://example.com/buckets/owner/checkpoints"), None);
+    }
+
+    #[test]
+    fn bucket_urls_preserve_nested_paths() {
+        let api_base = Url::parse(HUGGINGFACE_API).unwrap();
+        let endpoint = Url::parse(HUGGINGFACE_ENDPOINT).unwrap();
+        let bucket = BucketTarget::new("owner/checkpoints".into(), Some("logs/run-1".into()));
+
+        assert_eq!(
+            bucket_tree_url(&api_base, &bucket).unwrap().as_str(),
+            "https://huggingface.co/api/buckets/owner/checkpoints/tree/logs/run%2D1?recursive=true"
+        );
+        assert_eq!(
+            bucket_download_url(&endpoint, bucket.bucket_id(), "logs/run-1/output file.txt")
+                .unwrap()
+                .as_str(),
+            "https://huggingface.co/buckets/owner/checkpoints/resolve/logs/run%2D1/output%20file%2Etxt"
+        );
     }
 
     #[test]
