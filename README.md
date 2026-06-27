@@ -22,7 +22,7 @@ Kingfisher is an open source secret scanner and **live secret validation** tool 
 
 It combines Intel's SIMD-accelerated regex engine (Hyperscan) with language-aware parsing to achieve high accuracy at massive scale, and ships with [958 built-in rules](https://mongodb.github.io/kingfisher/rules/builtin-rules/) to detect, **validate**, and triage leaked API keys, tokens, and credentials before they ever reach production.
 
-Kingfisher also ships a **browser-based report viewer** that visualizes and triages findings from Kingfisher **and** from Gitleaks and TruffleHog JSON reports — so you can import scans from other tools and triage them in the same UI. A [hosted copy of the viewer](https://mongodb.github.io/kingfisher/viewer/) is published on the Kingfisher docs site [or run locally](#3-scan-and-view-results-in-browser)
+Kingfisher also ships a **browser-based report viewer** that visualizes and triages findings from Kingfisher, SARIF, Gitleaks, and TruffleHog reports — so you can import scans from other tools and triage them in the same UI. A [hosted copy of the viewer](https://mongodb.github.io/kingfisher/viewer/) is published on the Kingfisher docs site [or run locally](#3-scan-and-view-results-in-browser)
 
 Designed for offensive security engineers and blue-team defenders alike, Kingfisher helps you scan repositories, cloud storage, chat, docs, and CI pipelines to find and verify exposed secrets quickly.
 
@@ -67,7 +67,7 @@ Kingfisher is a high-performance, open source secret detection tool for source c
 - **Python Bytecode (.pyc) Scanning**: Extracts and scans string constants from compiled Python (`.pyc`, `.pyo`) files
 - **Baseline management**: generate and track baselines to suppress known secrets ([docs/BASELINE.md](/docs/BASELINE.md))
 - **Checksum-aware detection**: verifies tokens with built-in checksums (e.g., GitHub, Confluent, Zuplo) — no API calls required
-- **Report Viewer (local + hosted)**: Visualize and triage Kingfisher, **Gitleaks, and TruffleHog** JSON output locally with `kingfisher view ./report.json` or online with the [hosted viewer](https://mongodb.github.io/kingfisher/viewer/). Multiple files, directories, and imported third-party reports are merged and deduplicated. See [docs/USAGE.md](/docs/USAGE.md#report-viewer-local-and-hosted).
+- **Report Viewer (local + hosted)**: Visualize and triage Kingfisher, **SARIF, Gitleaks, and TruffleHog** output locally with `kingfisher view ./report.json` or online with the [hosted viewer](https://mongodb.github.io/kingfisher/viewer/). Multiple files, directories, and imported third-party reports are merged and deduplicated. See [docs/USAGE.md](/docs/USAGE.md#report-viewer-local-and-hosted).
 - **Audit reporting**: Generate compliance-oriented HTML reports with scan metadata and validation ordering
 - **Library crates**: Embed Kingfisher's scanning engine in your own Rust applications ([docs/LIBRARY.md](docs/LIBRARY.md))
 
@@ -144,11 +144,14 @@ kingfisher scan /path/to/code
 kingfisher scan /path/to/code --view-report
 ```
 
-You can also open existing Kingfisher, Gitleaks, or TruffleHog JSON reports with `kingfisher view <report.json>`:
+You can also open existing Kingfisher, SARIF, Gitleaks, or TruffleHog reports with `kingfisher view <report>`:
 
 ```bash
 # Kingfisher report
 kingfisher view kingfisher.json
+
+# Kingfisher SARIF output
+kingfisher view kingfisher.sarif
 
 # Import a Gitleaks JSON report
 kingfisher view gitleaks-report.json
@@ -157,9 +160,9 @@ kingfisher view gitleaks-report.json
 kingfisher view trufflehog-report.jsonl
 
 # Combine multiple reports (deduplicated by fingerprint / secret identity)
-kingfisher view kingfisher.json gitleaks.json trufflehog.jsonl
+kingfisher view kingfisher.json kingfisher.sarif gitleaks.json trufflehog.jsonl
 
-# Or load every JSON/JSONL report in a directory
+# Or load every JSON/JSONL/SARIF report in a directory
 kingfisher view ./reports/
 ```
 
@@ -371,20 +374,21 @@ A successful verification prints `Verified OK`. The attestation proves the artif
 
 ## Report Viewer (local and hosted)
 
-Kingfisher ships a browser-based **report viewer and triager** for three formats:
+Kingfisher ships a browser-based **report viewer and triager** for four report families:
 
-- Kingfisher JSON / JSONL (with full `access_map` blast-radius data when present)
+- Kingfisher JSON / JSONL / SARIF (with full `access_map` blast-radius data when present)
+- **SARIF** 2.1.0
 - **Gitleaks** JSON
 - **TruffleHog** JSON / JSONL (verified findings are surfaced as active credentials)
 
 There are two ways to use it:
 
 1. **Locally via the CLI** — `kingfisher view ./report.json` (bundled into every Kingfisher binary; no external services)
-2. **Hosted** — [https://mongodb.github.io/kingfisher/viewer/](https://mongodb.github.io/kingfisher/viewer/) — a static, client-side upload-based copy of the same viewer. Drag in Kingfisher, Gitleaks, or TruffleHog reports and triage in your browser; nothing is uploaded to a server.
+2. **Hosted** — [https://mongodb.github.io/kingfisher/viewer/](https://mongodb.github.io/kingfisher/viewer/) — a static, client-side upload-based copy of the same viewer. Drag in Kingfisher, SARIF, Gitleaks, or TruffleHog reports and triage in your browser; nothing is uploaded to a server.
 
 ### Why use a visual viewer / triager?
 
-Raw JSON from Kingfisher, Gitleaks, or TruffleHog is great for machines, but awful for humans making decisions on which findings are real and which need to be rotated first. The viewer lets a security engineer:
+Raw JSON and SARIF from Kingfisher, Gitleaks, or TruffleHog are great for machines, but awful for humans making decisions on which findings are real and which need to be rotated first. The viewer lets a security engineer:
 
 - **Skim hundreds of findings at a glance**, grouped by detector, file, repository, and validation status instead of one line per finding in a terminal.
 - **Triage across multiple tools in one place** — import a Gitleaks report plus a TruffleHog report plus a Kingfisher scan of the same repo and look at them side-by-side with dedup, instead of eyeballing three different JSON schemas.
@@ -394,7 +398,7 @@ Raw JSON from Kingfisher, Gitleaks, or TruffleHog is great for machines, but awf
 - **See blast radius** — for Kingfisher reports generated with `--access-map`, the viewer renders the identity, permissions, and resources a leaked credential can reach, so you can tell a dev token apart from a production admin key.
 - **Export triage decisions** — filter down to what matters and export a cleaned-up subset for a ticket, a rotation runbook, or an audit reviewer.
 
-Gitleaks and TruffleHog are both widely used open-source secret scanners with their own strengths; Kingfisher's viewer reads their standard JSON output so teams that already run them can pull those findings into the same triage workflow. Kingfisher is not affiliated with or endorsed by the Gitleaks project or Truffle Security Co.; TruffleHog and Gitleaks are trademarks of their respective owners.
+Gitleaks and TruffleHog are both widely used open-source secret scanners with their own strengths; Kingfisher's viewer reads their standard JSON output plus SARIF so teams that already run other tooling can pull those findings into the same triage workflow. Kingfisher is not affiliated with or endorsed by the Gitleaks project or Truffle Security Co.; TruffleHog and Gitleaks are trademarks of their respective owners.
 
 Note: when you pass `--view-report`, Kingfisher starts a web server on port `7890` (default) and opens it in your default browser. By default it binds to `127.0.0.1` for security. You'll see this near the end of the scan output, and **Kingfisher will keep running** until you stop it.
 
@@ -524,19 +528,20 @@ kingfisher scan /path/to/code --access-map --view-report
 
 # View access-map reports locally
 kingfisher view kingfisher.json
+kingfisher view kingfisher.sarif
 
 # Import third-party reports for local triage
 kingfisher view trufflehog.json
 kingfisher view gitleaks.json
 
 # Combine multiple reports (deduplicated by fingerprint)
-kingfisher view report1.json report2.jsonl
+kingfisher view report1.json report2.jsonl report3.sarif
 
-# Load all reports from a directory (non-recursive, skips non-JSON/JSONL files)
+# Load all reports from a directory (non-recursive, skips non-JSON/JSONL/SARIF files)
 kingfisher view ./reports/
 ```
 
-The viewer can import Gitleaks JSON and TruffleHog JSON/JSONL in addition to native Kingfisher reports. Imported findings are normalized for browsing, filtering, and export, and imported TruffleHog/Gitleaks findings deduplicate by secret identity. Imported reports remain display-oriented: native `access_map`, validate/revoke commands, and blast-radius linking still require a Kingfisher scan.
+The viewer can import SARIF, Gitleaks JSON, and TruffleHog JSON/JSONL in addition to native Kingfisher reports. Imported findings are normalized for browsing, filtering, and export. Kingfisher-produced SARIF can preserve compatible validation status, command, fingerprint, and `access_map` properties when present; generic imported reports remain display-oriented and full blast-radius linking still requires a Kingfisher scan.
 
 > **Use the access map functionality only when you are authorized to inspect the target account, as Kingfisher will issue additional network requests to determine what access the secret grants**
 

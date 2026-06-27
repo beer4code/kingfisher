@@ -2252,7 +2252,7 @@
       <div class="panel__header">
         <div class="panel__title">
           <h3>Load Report</h3>
-          <p>Analyze Kingfisher JSON / JSONL output, plus Gitleaks and TruffleHog JSON reports</p>
+          <p>Analyze Kingfisher JSON / JSONL / SARIF output, plus Gitleaks and TruffleHog JSON reports</p>
         </div>
       </div>
       <div class="upload-shell">
@@ -2262,9 +2262,9 @@
           <div class="upload-sub">Drop files anywhere in this card, or click to choose them from disk.</div>
           <div class="upload-action-row">
             <span class="upload-primary">Choose Reports</span>
-            <span class="upload-action-hint">JSON and JSONL only</span>
+            <span class="upload-action-hint">JSON, JSONL, and SARIF</span>
           </div>
-          <input type="file" id="file-input" hidden accept=".json,.jsonl" multiple>
+          <input type="file" id="file-input" hidden accept=".json,.jsonl,.sarif" multiple>
           <div class="upload-options" style="margin-top:14px; display:flex; justify-content:center; font-size:12px; color:var(--text-muted);">
             <label id="dedup-toggle-label" style="display:inline-flex; align-items:center; gap:6px; cursor:pointer;">
               <input type="checkbox" id="dedup-toggle" checked>
@@ -2275,7 +2275,7 @@
         <div class="upload-help-grid">
           <div class="upload-help-card">
             <div class="upload-help-label">Formats</div>
-            <div class="upload-help-text"><strong>Kingfisher</strong> JSON/JSONL, <strong>Gitleaks</strong> OSS JSON, and <strong>TruffleHog</strong> OSS JSON/JSONL.</div>
+            <div class="upload-help-text"><strong>Kingfisher</strong> JSON/JSONL/SARIF, <strong>SARIF</strong> 2.1.0, <strong>Gitleaks</strong> OSS JSON, and <strong>TruffleHog</strong> OSS JSON/JSONL.</div>
           </div>
           <div class="upload-help-card">
             <div class="upload-help-label">Merge More</div>
@@ -2283,7 +2283,7 @@
           </div>
           <div class="upload-help-card">
             <div class="upload-help-label">Deduplication</div>
-            <div class="upload-help-text"><strong>Kingfisher</strong> reports are already deduplicated. For imported <strong>Gitleaks</strong> and <strong>TruffleHog</strong> reports, the viewer attempts deduplication (by default) by finding fingerprint: native fingerprints when present, otherwise a synthetic fingerprint built from the tool, detector, and secret identity, with path/line/snippet fallback when needed.</div>
+            <div class="upload-help-text"><strong>Kingfisher</strong> reports are already deduplicated. For imported <strong>SARIF</strong>, <strong>Gitleaks</strong>, and <strong>TruffleHog</strong> reports, the viewer attempts deduplication (by default) by finding fingerprint: native fingerprints when present, otherwise a synthetic fingerprint built from the tool, detector, and secret identity, with path/line/snippet fallback when needed.</div>
           </div>
           <div class="upload-help-card">
             <div class="upload-help-label">Privacy</div>
@@ -2291,7 +2291,7 @@
           </div>
           <div class="upload-help-card">
             <div class="upload-help-label">Attribution</div>
-            <div class="upload-help-text">Reads JSON output from the open-source TruffleHog and Gitleaks CLIs. Kingfisher is not affiliated with or endorsed by Truffle Security Co. or the Gitleaks project. TruffleHog and Gitleaks are trademarks of their respective owners.</div>
+            <div class="upload-help-text">Reads SARIF plus JSON output from the open-source TruffleHog and Gitleaks CLIs. Kingfisher is not affiliated with or endorsed by Truffle Security Co. or the Gitleaks project. TruffleHog and Gitleaks are trademarks of their respective owners.</div>
           </div>
         </div>
         <div id="error-msg" class="hidden" style="margin-top:16px; padding:10px 12px; background:#fef2f2; border:1px solid #fecaca; border-radius:6px; color:#b91c1c; font-size:13px;"></div>
@@ -2458,6 +2458,10 @@
                   <div class="metric__label">Gitleaks duplicates removed</div>
                   <div class="metric__value" id="dedup-count-gitleaks">0</div>
                 </div>
+                <div class="metric" id="dedup-card-sarif">
+                  <div class="metric__label">SARIF duplicates removed</div>
+                  <div class="metric__value" id="dedup-count-sarif">0</div>
+                </div>
               </div>
             </section>
 
@@ -2580,6 +2584,7 @@
                   <select id="source-filter" class="rows-select">
                     <option value="all" selected>All sources</option>
                     <option value="kingfisher">Kingfisher</option>
+                    <option value="sarif">SARIF</option>
                     <option value="gitleaks">Gitleaks</option>
                     <option value="trufflehog">TruffleHog</option>
                   </select>
@@ -2789,7 +2794,7 @@
     let rawData = null;
     let findings = [];
     let accessMap = [];
-    let duplicatesRemoved = { kingfisher: 0, trufflehog: 0, gitleaks: 0, total: 0 };
+    let duplicatesRemoved = { kingfisher: 0, sarif: 0, trufflehog: 0, gitleaks: 0, total: 0 };
     let filteredAccessMapView = [];
     let currentFilter = "";
     let validationFilter = "all";
@@ -3370,6 +3375,10 @@
         const item = stack.shift();
         if (!item || typeof item !== "object") continue;
 
+        if (isSarifPayload(item) || isSarifRun(item)) {
+          return "sarif";
+        }
+
         if (Array.isArray(item.results)) {
           stack.unshift(...item.results);
           continue;
@@ -3492,6 +3501,309 @@
         successful_validations: counts.active || 0,
         failed_validations: counts.inactive || 0,
         skipped_validations: counts.not_attempted || 0,
+      };
+    }
+
+    function isSarifPayload(item) {
+      if (!item || typeof item !== "object") return false;
+      if (!Array.isArray(item.runs)) return false;
+      const schema = String(item["$schema"] || item.schema || "").toLowerCase();
+      const version = String(item.version || "");
+      return schema.includes("sarif") || version === "2.1.0" || item.runs.some(isSarifRun);
+    }
+
+    function isSarifRun(item) {
+      return Boolean(
+        item &&
+        typeof item === "object" &&
+        item.tool &&
+        typeof item.tool === "object" &&
+        Array.isArray(item.results)
+      );
+    }
+
+    function sarifMessageText(value) {
+      if (value === undefined || value === null) return "";
+      if (typeof value === "string") return value;
+      if (typeof value !== "object") return String(value);
+      return String(firstNonEmpty(value.text, value.markdown) || "");
+    }
+
+    function sarifToolDriver(run) {
+      return run && run.tool && run.tool.driver && typeof run.tool.driver === "object"
+        ? run.tool.driver
+        : {};
+    }
+
+    function sarifToolName(run) {
+      const driver = sarifToolDriver(run);
+      return String(firstNonEmpty(driver.name, driver.fullName, "SARIF") || "SARIF");
+    }
+
+    function isKingfisherSarifRun(run) {
+      const driver = sarifToolDriver(run);
+      const haystack = [
+        driver.name,
+        driver.fullName,
+        driver.informationUri,
+        driver.downloadUri,
+      ].map((value) => String(value || "").toLowerCase()).join(" ");
+      return haystack.includes("kingfisher");
+    }
+
+    function sarifSourceDisplayName(run) {
+      const toolName = sarifToolName(run);
+      if (isKingfisherSarifRun(run)) return "Kingfisher SARIF";
+      return toolName && toolName.toLowerCase() !== "sarif" ? `${toolName} SARIF` : "SARIF";
+    }
+
+    function sarifLevelToConfidence(level) {
+      const normalized = String(level || "").toLowerCase();
+      if (normalized === "error") return "high";
+      if (normalized === "note" || normalized === "none") return "low";
+      return "medium";
+    }
+
+    function buildSarifRuleMaps(run) {
+      const driver = sarifToolDriver(run);
+      const rules = Array.isArray(driver.rules) ? driver.rules : [];
+      const byIndex = new Map();
+      const byId = new Map();
+      rules.forEach((rule, index) => {
+        if (!rule || typeof rule !== "object") return;
+        byIndex.set(index, rule);
+        const id = String(rule.id || "");
+        if (id) byId.set(id, rule);
+      });
+      return { byIndex, byId };
+    }
+
+    function sarifResultRule(result, ruleMaps) {
+      const ruleIndex = toNumberOrNull(firstNonEmpty(
+        result.ruleIndex,
+        result.rule && result.rule.index
+      ));
+      const ruleId = String(firstNonEmpty(
+        result.ruleId,
+        result.rule && result.rule.id,
+        ""
+      ) || "");
+      return (
+        (ruleIndex !== null ? ruleMaps.byIndex.get(ruleIndex) : null) ||
+        (ruleId ? ruleMaps.byId.get(ruleId) : null) ||
+        null
+      );
+    }
+
+    function sarifProperties(result, location, physicalLocation) {
+      return Object.assign(
+        {},
+        result && result.properties && typeof result.properties === "object" ? result.properties : {},
+        physicalLocation && physicalLocation.properties && typeof physicalLocation.properties === "object" ? physicalLocation.properties : {},
+        location && location.properties && typeof location.properties === "object" ? location.properties : {},
+      );
+    }
+
+    function sarifGitMetadata(run, props, path, line) {
+      const explicit = firstNonEmpty(props.git_metadata, props.gitMetadata);
+      if (explicit && typeof explicit === "object") return explicit;
+
+      const provenance = Array.isArray(run.versionControlProvenance)
+        ? run.versionControlProvenance[0]
+        : null;
+      if (!provenance || typeof provenance !== "object") return null;
+
+      const repoUrl = normalizeRepositoryWebUrl(firstNonEmpty(
+        provenance.repositoryUri,
+        provenance.repository_url,
+        provenance.repositoryUrl
+      ));
+      const commitId = firstNonEmpty(provenance.revisionId, provenance.revision_id, provenance.revision);
+      const fileUrl = buildGitFileUrl(repoUrl, commitId, path, line);
+      return buildGitMetadata(commitId, "", fileUrl, repoUrl);
+    }
+
+    function sarifFingerprint(result, props, sourceTool, ruleId, path, line, columnStart, snippet) {
+      const partial = result && result.partialFingerprints && typeof result.partialFingerprints === "object"
+        ? result.partialFingerprints
+        : {};
+      const full = result && result.fingerprints && typeof result.fingerprints === "object"
+        ? result.fingerprints
+        : {};
+      return String(
+        firstNonEmpty(
+          partial.fingerprint,
+          partial.primaryLocationLineHash,
+          full.fingerprint,
+          props.fingerprint,
+          props.finding_fingerprint,
+          props.findingFingerprint
+        ) ||
+        buildSyntheticFingerprint("sarif", [sourceTool, ruleId, path, line, columnStart, snippet])
+      );
+    }
+
+    function normalizeSarifResult(result, run, ruleMaps) {
+      if (!result || typeof result !== "object") return null;
+      const locations = Array.isArray(result.locations) ? result.locations : [];
+      const location = locations.find((loc) => loc && loc.physicalLocation) || locations[0] || {};
+      const physical = location.physicalLocation || {};
+      const artifact = physical.artifactLocation || {};
+      const region = physical.region || {};
+      const props = sarifProperties(result, location, physical);
+      const descriptor = sarifResultRule(result, ruleMaps);
+      const ruleId = String(firstNonEmpty(
+        result.ruleId,
+        result.rule && result.rule.id,
+        descriptor && descriptor.id,
+        "sarif.unknown"
+      ) || "sarif.unknown");
+      const ruleName = String(firstNonEmpty(
+        descriptor && descriptor.name,
+        descriptor && descriptor.shortDescription && sarifMessageText(descriptor.shortDescription),
+        sarifMessageText(result.message),
+        ruleId
+      ) || ruleId);
+      const ruleDescription = String(firstNonEmpty(
+        descriptor && descriptor.fullDescription && sarifMessageText(descriptor.fullDescription),
+        descriptor && descriptor.help && sarifMessageText(descriptor.help),
+        ruleName
+      ) || ruleName);
+      const path = String(firstNonEmpty(artifact.uri, artifact.uriBaseId, "") || "");
+      const line = toNumberOrNull(firstNonEmpty(region.startLine, region.start_line));
+      const columnStart = toNumberOrNull(firstNonEmpty(region.startColumn, region.start_column));
+      const columnEnd = toNumberOrNull(firstNonEmpty(region.endColumn, region.end_column));
+      const snippet = String(firstNonEmpty(
+        region.snippet && sarifMessageText(region.snippet),
+        sarifMessageText(result.message),
+        ruleDescription
+      ) || "");
+      const sourceTool = sarifSourceDisplayName(run);
+      const isKingfisherSarif = isKingfisherSarifRun(run);
+      const validationStatus = String(firstNonEmpty(
+        props.validation_status,
+        props.validationStatus,
+        props.validation && props.validation.status,
+        "Not Attempted"
+      ) || "Not Attempted");
+      const validationResponse = String(firstNonEmpty(
+        props.validation_response,
+        props.validationResponse,
+        props.validation && props.validation.response,
+        ""
+      ) || "");
+      const entropy = firstNonEmpty(props.entropy, "");
+      const fingerprint = sarifFingerprint(
+        result,
+        props,
+        sourceTool,
+        ruleId,
+        path,
+        line,
+        columnStart,
+        snippet,
+      );
+      const gitMetadata = sarifGitMetadata(run, props, path, line);
+      const validateCommand = firstNonEmpty(props.validate_command, props.validateCommand, "");
+      const revokeCommand = firstNonEmpty(props.revoke_command, props.revokeCommand, "");
+
+      return {
+        rule: {
+          id: "imported.sarif." + slugifyIdentifier(`${sourceTool}.${ruleId}`),
+          name: ruleName,
+        },
+        finding: {
+          snippet,
+          fingerprint,
+          confidence: sarifLevelToConfidence(result.level),
+          entropy: entropy !== "" ? String(entropy) : "",
+          validation: {
+            status: validationStatus,
+            response: validationResponse,
+          },
+          language: "Imported",
+          line,
+          column_start: columnStart,
+          column_end: columnEnd,
+          path,
+          git_metadata: gitMetadata,
+          validate_command: validateCommand ? String(validateCommand) : "",
+          revoke_command: revokeCommand ? String(revokeCommand) : "",
+          viewer_import: {
+            source_tool: sourceTool,
+            source_format: "SARIF",
+            source_rule_id: ruleId,
+            source_rule_name: ruleName,
+            source_rule_description: ruleDescription,
+            kingfisher_native: isKingfisherSarif,
+          },
+        },
+      };
+    }
+
+    function normalizeSarifPayload(payload) {
+      const documents = Array.isArray(payload) ? payload : [payload];
+      const normalizedFindings = [];
+      const accessMap = [];
+      const tools = new Set();
+      let target = "";
+      let version = "";
+      let hasKingfisherSarif = false;
+      let hasCommands = false;
+
+      documents.forEach((document) => {
+        const runs = isSarifPayload(document)
+          ? document.runs
+          : (isSarifRun(document) ? [document] : []);
+        runs.forEach((run) => {
+          if (!isSarifRun(run)) return;
+          const sourceTool = sarifSourceDisplayName(run);
+          tools.add(sourceTool);
+          hasKingfisherSarif = hasKingfisherSarif || isKingfisherSarifRun(run);
+          const driver = sarifToolDriver(run);
+          if (!version) version = String(firstNonEmpty(driver.semanticVersion, driver.version, "") || "");
+          const runProps = run.properties && typeof run.properties === "object" ? run.properties : {};
+          const runAccessMap = firstNonEmpty(runProps.access_map, runProps.accessMap);
+          if (Array.isArray(runAccessMap)) accessMap.push(...runAccessMap);
+
+          const ruleMaps = buildSarifRuleMaps(run);
+          (run.results || []).forEach((result) => {
+            const normalized = normalizeSarifResult(result, run, ruleMaps);
+            if (!normalized) return;
+            if (!target && normalized.finding.path) target = normalized.finding.path;
+            hasCommands = hasCommands || Boolean(normalized.finding.validate_command || normalized.finding.revoke_command);
+            normalizedFindings.push(normalized);
+          });
+        });
+      });
+
+      const toolList = Array.from(tools);
+      const notes = [
+        "Imported from SARIF. Locations and rule metadata are normalized for triage; validation, command, and access-map details appear only when the SARIF producer includes compatible Kingfisher properties.",
+      ];
+
+      return {
+        f: normalizedFindings,
+        am: accessMap,
+        rd: {
+          findings: normalizedFindings,
+          access_map: accessMap,
+          metadata: {
+            generated_at: new Date().toISOString(),
+            scan_timestamp: new Date().toISOString(),
+            target,
+            kingfisher_version: hasKingfisherSarif ? version : "",
+            summary: buildImportedSummary("SARIF", normalizedFindings),
+            viewer_import: buildViewerImportMetadata("SARIF", {
+              imported: true,
+              tools: toolList.length ? toolList : ["SARIF"],
+              accessMapSupported: hasKingfisherSarif || accessMap.length > 0,
+              validateCommandSupported: hasKingfisherSarif || hasCommands,
+              revokeCommandSupported: hasKingfisherSarif || hasCommands,
+              notes,
+            }),
+          },
+        },
       };
     }
 
@@ -3714,7 +4026,7 @@
           }
           const fmt = detectReportFormat(entry);
           entryFormats.push(fmt);
-          if (fmt === "gitleaks" || fmt === "trufflehog") {
+          if (fmt === "gitleaks" || fmt === "trufflehog" || fmt === "sarif") {
             hasImported = true;
           }
         }
@@ -3731,6 +4043,8 @@
             partial = normalizeImportedPayload(entry, "TruffleHog");
           } else if (fmt === "gitleaks") {
             partial = normalizeImportedPayload(entry, "Gitleaks");
+          } else if (fmt === "sarif") {
+            partial = normalizeSarifPayload(entry);
           } else {
             partial = normalizeKingfisherPayload(entry);
           }
@@ -3747,6 +4061,9 @@
       }
       if (format === "gitleaks") {
         return normalizeImportedPayload(payload, "Gitleaks");
+      }
+      if (format === "sarif") {
+        return normalizeSarifPayload(payload);
       }
       return normalizeKingfisherPayload(payload);
     }
@@ -3778,11 +4095,11 @@
     function processFiles(files, { append = false } = {}) {
       const validFiles = files.filter((f) => {
         const name = f.name.toLowerCase();
-        return name.endsWith(".json") || name.endsWith(".jsonl");
+        return name.endsWith(".json") || name.endsWith(".jsonl") || name.endsWith(".sarif");
       });
 
       if (validFiles.length === 0) {
-        errorMsg.textContent = "No JSON or JSONL files found in the selection.";
+        errorMsg.textContent = "No JSON, JSONL, or SARIF files found in the selection.";
         errorMsg.classList.remove("hidden");
         return;
       }
@@ -3873,7 +4190,7 @@
       currentDetailFinding = null;
       scanMetadata = {};
       selectedAccessMapNode = null;
-      duplicatesRemoved = { kingfisher: 0, trufflehog: 0, gitleaks: 0, total: 0 };
+      duplicatesRemoved = { kingfisher: 0, sarif: 0, trufflehog: 0, gitleaks: 0, total: 0 };
 
       currentFilter = "";
       validationFilter = "all";
@@ -3951,7 +4268,7 @@
       const dedupDisabledMulti = isDedupDisabled();
       let dedupResultMulti;
       if (dedupDisabledMulti) {
-        dedupResultMulti = { findings: nextFindings.slice(), dropped: { kingfisher: 0, trufflehog: 0, gitleaks: 0, total: 0 } };
+        dedupResultMulti = { findings: nextFindings.slice(), dropped: { kingfisher: 0, sarif: 0, trufflehog: 0, gitleaks: 0, total: 0 } };
       } else {
         dedupResultMulti = deduplicateFindings(nextFindings);
       }
@@ -3976,7 +4293,7 @@
       const dedupDisabledSingle = isDedupDisabled();
       let dedupResultSingle;
       if (dedupDisabledSingle) {
-        dedupResultSingle = { findings: f.slice(), dropped: { kingfisher: 0, trufflehog: 0, gitleaks: 0, total: 0 } };
+        dedupResultSingle = { findings: f.slice(), dropped: { kingfisher: 0, sarif: 0, trufflehog: 0, gitleaks: 0, total: 0 } };
       } else {
         dedupResultSingle = deduplicateFindings(f);
       }
@@ -4021,7 +4338,7 @@
     function deduplicateFindings(list) {
       const seen = new Set();
       const result = [];
-      const dropped = { kingfisher: 0, trufflehog: 0, gitleaks: 0, total: 0 };
+      const dropped = { kingfisher: 0, sarif: 0, trufflehog: 0, gitleaks: 0, total: 0 };
       for (const f of list) {
         const fp = f.finding && f.finding.fingerprint ? f.finding.fingerprint : "";
         if (fp && seen.has(fp)) {
@@ -4042,7 +4359,7 @@
     }
 
     // Two paths match if they're equal, or one is a path-suffix of the other.
-    // Handles Kingfisher absolute filesystem paths vs TruffleHog/Gitleaks
+    // Handles Kingfisher absolute filesystem paths vs imported repo-relative
     // repo-relative paths for the same file.
     function pathsCompatible(a, b) {
       if (!a || !b) return false;
@@ -4059,7 +4376,10 @@
       const byCommitLine = new Map();
       for (const f of findingList) {
         if (!f || !f.finding) continue;
-        if (f.finding.viewer_import) continue;
+        const importInfo = f.finding.viewer_import && typeof f.finding.viewer_import === "object"
+          ? f.finding.viewer_import
+          : null;
+        if (importInfo && !importInfo.kingfisher_native) continue;
         const fg = f.finding;
         const path = normalizePathForMatch(fg.path);
         const line = fg.line != null ? String(fg.line) : "";
@@ -4077,6 +4397,7 @@
       }
       for (const f of findingList) {
         if (!f || !f.finding || !f.finding.viewer_import) continue;
+        if (f.finding.viewer_import.kingfisher_native) continue;
         const fg = f.finding;
         const path = normalizePathForMatch(fg.path);
         const line = fg.line != null ? String(fg.line) : "";
@@ -4169,7 +4490,7 @@
     }
 
     function getAccessMapEmptyMessage() {
-      if (scanMetadata.imported) {
+      if (scanMetadata.imported && (!scanMetadata.capabilities || !scanMetadata.capabilities.accessMapSupported)) {
         return "Imported reports do not include Kingfisher access-map data. Re-scan with <code>kingfisher scan --access-map</code> for blast-radius mapping.";
       }
       return "No Access Map entries in this report. Run a scan with <code>--access-map</code> to map credential blast radius.";
@@ -4394,12 +4715,14 @@
         else enrichedCard.classList.add("hidden");
       }
 
-      const dr = duplicatesRemoved || { total: 0, kingfisher: 0, trufflehog: 0, gitleaks: 0 };
+      const dr = duplicatesRemoved || { total: 0, kingfisher: 0, sarif: 0, trufflehog: 0, gitleaks: 0 };
       const dedupPanel = document.getElementById("dedup-panel");
       const kfCount = document.getElementById("dedup-count-kingfisher");
+      const sarifCount = document.getElementById("dedup-count-sarif");
       const thCount = document.getElementById("dedup-count-trufflehog");
       const glCount = document.getElementById("dedup-count-gitleaks");
       if (kfCount) kfCount.textContent = (dr.kingfisher || 0).toLocaleString();
+      if (sarifCount) sarifCount.textContent = (dr.sarif || 0).toLocaleString();
       if (thCount) thCount.textContent = (dr.trufflehog || 0).toLocaleString();
       if (glCount) glCount.textContent = (dr.gitleaks || 0).toLocaleString();
       if (dedupPanel) {
@@ -4421,6 +4744,10 @@
       const sourceTool = importInfo && importInfo.source_tool
         ? String(importInfo.source_tool).trim().toLowerCase()
         : "";
+      const sourceFormat = importInfo && importInfo.source_format
+        ? String(importInfo.source_format).trim().toLowerCase()
+        : "";
+      if (sourceFormat === "sarif" || sourceTool.includes("sarif")) return "sarif";
       if (sourceTool === "gitleaks") return "gitleaks";
       if (sourceTool === "trufflehog") return "trufflehog";
       return "kingfisher";
@@ -4580,7 +4907,7 @@
     }
 
     function calculateSourceCounts(list = findings) {
-      const counts = { kingfisher: 0, gitleaks: 0, trufflehog: 0 };
+      const counts = { kingfisher: 0, sarif: 0, gitleaks: 0, trufflehog: 0 };
       (list || []).forEach((f) => {
         const finding = f && f.finding ? f.finding : {};
         const source = getFindingSourceTool(finding);
@@ -4714,7 +5041,7 @@
         detectorCounts.set(label, (detectorCounts.get(label) || 0) + 1);
       });
 
-      return ["kingfisher", "gitleaks", "trufflehog"]
+      return ["kingfisher", "sarif", "gitleaks", "trufflehog"]
         .filter((source) => groupedBySource.has(source))
         .map((source) => {
           const countsMap = groupedBySource.get(source);
@@ -4766,12 +5093,14 @@
     }
 
     function getSourceBadgeClass(source) {
+      if (source === "sarif") return "badge-github";
       if (source === "gitleaks") return "badge-github";
       if (source === "trufflehog") return "badge-gcp";
       return "badge-aws";
     }
 
     function getSourceDisplayName(source) {
+      if (source === "sarif") return "SARIF";
       if (source === "gitleaks") return "Gitleaks";
       if (source === "trufflehog") return "TruffleHog";
       return "Kingfisher";
@@ -4877,6 +5206,7 @@
     function renderSourceChart(counts) {
       const dataPoints = [
         { key: "kingfisher", label: "Kingfisher", color: "#0e7c56" },
+        { key: "sarif", label: "SARIF", color: "#0891b2" },
         { key: "gitleaks", label: "Gitleaks", color: "#2563eb" },
         { key: "trufflehog", label: "TruffleHog", color: "#7c3aed" },
       ];
@@ -5993,7 +6323,7 @@
       const isActive = normalizedStatus === "active";
 
       if (!accessEntries || accessEntries.length === 0) {
-        if (importInfo && scanMetadata.imported) {
+        if (importInfo && scanMetadata.imported && (!scanMetadata.capabilities || !scanMetadata.capabilities.accessMapSupported)) {
           return {
             level: isActive ? "low" : "none",
             text: `This finding was imported from ${escapeHtml(importInfo.source_tool || "an external tool")}. Imported reports do not carry Kingfisher access-map data, so blast radius cannot be derived here. Re-scan with <code>kingfisher scan --access-map</code> for native mapping.`,

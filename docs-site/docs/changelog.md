@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 - Added Slack file scanning alongside message search, including downloading accessible files for scanning; private file downloads require `files:read`.
 - Added rule selection exclusions for scans via repeated `--exclude-rule` flags and `rules.disabled` in `kingfisher.yaml`, alongside the existing include selectors.
 - Improved the access-map docs and HTML viewer for the new Azure, AWS, Hugging Face, and Salesforce resource mappings.
+- Added SARIF import support to the report viewer, including `.sarif` uploads and Kingfisher SARIF metadata recovery alongside existing JSON/JSONL support.
 
 ## [v1.104.0]
 - Compiled Vectorscan rule caching is now enabled by default, with `--no-rule-cache` available for opt-out and `--rule-cache-dir` / `KF_RULE_CACHE_DIR` for custom or Docker-mounted cache locations.
