@@ -399,15 +399,21 @@ fn scan_args_for_github_event_target(
     input.branch_root = false;
     input.branch_root_commit = None;
 
-    match &target.selector {
-        github::GitHubEventScanSelector::Repository => {}
-        github::GitHubEventScanSelector::Branch(ref_name)
-        | github::GitHubEventScanSelector::Commit(ref_name) => {
-            input.branch = Some(ref_name.clone());
-        }
-    }
+    let (branch, branch_root_commit) = git_refs_for_github_event_selector(&target.selector);
+    input.branch = branch;
+    input.branch_root_commit = branch_root_commit;
 
     target_args
+}
+
+fn git_refs_for_github_event_selector(
+    selector: &github::GitHubEventScanSelector,
+) -> (Option<String>, Option<String>) {
+    match selector {
+        github::GitHubEventScanSelector::Repository => (None, None),
+        github::GitHubEventScanSelector::Branch(ref_name) => (Some(ref_name.clone()), None),
+        github::GitHubEventScanSelector::Commit(sha) => (Some(sha.clone()), Some(sha.clone())),
+    }
 }
 
 /// Spawns a background thread to clone/update git repositories, streaming results via a channel.
@@ -1606,4 +1612,40 @@ pub fn load_and_record_rules(
     init_progress.set_message("Recording rules...");
     datastore.lock().unwrap().record_rules(rules_db.rules());
     Ok(rules_db)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::git_refs_for_github_event_selector;
+    use crate::github::GitHubEventScanSelector;
+
+    #[test]
+    fn github_event_commit_selector_scans_commit_diff() {
+        let sha = "0123456789abcdef0123456789abcdef01234567".to_string();
+
+        let (branch, branch_root_commit) =
+            git_refs_for_github_event_selector(&GitHubEventScanSelector::Commit(sha.clone()));
+
+        assert_eq!(branch.as_deref(), Some(sha.as_str()));
+        assert_eq!(branch_root_commit.as_deref(), Some(sha.as_str()));
+    }
+
+    #[test]
+    fn github_event_branch_selector_scans_branch_tip() {
+        let (branch, branch_root_commit) = git_refs_for_github_event_selector(
+            &GitHubEventScanSelector::Branch("feature/secrets".to_string()),
+        );
+
+        assert_eq!(branch.as_deref(), Some("feature/secrets"));
+        assert!(branch_root_commit.is_none());
+    }
+
+    #[test]
+    fn github_event_repository_selector_uses_default_scan_scope() {
+        let (branch, branch_root_commit) =
+            git_refs_for_github_event_selector(&GitHubEventScanSelector::Repository);
+
+        assert!(branch.is_none());
+        assert!(branch_root_commit.is_none());
+    }
 }
