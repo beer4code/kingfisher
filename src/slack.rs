@@ -41,12 +41,12 @@ struct SlackSearchResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct SlackFile {
-    id: String,
-    name: Option<String>,
-    title: Option<String>,
-    permalink: Option<String>,
-    url_private: Option<String>,
-    url_private_download: Option<String>,
+    pub id: String,
+    pub name: Option<String>,
+    pub title: Option<String>,
+    pub permalink: Option<String>,
+    pub url_private: Option<String>,
+    pub url_private_download: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -67,6 +67,10 @@ fn next_slack_page(pagination: Option<&SlackPagination>, current_page: u32) -> O
     let page_count = pagination.page_count?;
     let next_page = pagination.page.unwrap_or(current_page).saturating_add(1);
     (next_page <= page_count).then_some(next_page)
+}
+
+fn slack_file_permalink(file: &SlackFile) -> Option<String> {
+    file.permalink.as_ref().filter(|permalink| !permalink.trim().is_empty()).cloned()
 }
 
 fn slack_token() -> Result<String> {
@@ -288,7 +292,9 @@ pub async fn download_files_to_dir(
             .await
             .with_context(|| format!("Failed to flush Slack file download {}", path.display()))?;
 
-        paths.push((path, file.permalink.unwrap_or_default()));
+        if let Some(permalink) = slack_file_permalink(&file) {
+            paths.push((path, permalink));
+        }
     }
 
     Ok(paths)
@@ -296,7 +302,7 @@ pub async fn download_files_to_dir(
 
 #[cfg(test)]
 mod tests {
-    use super::{SlackPagination, next_slack_page, sanitize_filename_component};
+    use super::{SlackFile, SlackPagination, next_slack_page, sanitize_filename_component};
 
     #[test]
     fn sanitize_filename_component_prevents_path_traversal() {
@@ -327,6 +333,28 @@ mod tests {
         assert_eq!(
             next_slack_page(Some(&SlackPagination { page: Some(3), page_count: Some(3) }), 3),
             None
+        );
+    }
+
+    #[test]
+    fn slack_file_permalink_ignores_missing_or_blank_links() {
+        let mut file = SlackFile {
+            id: "F123".to_string(),
+            name: Some("credentials.txt".to_string()),
+            title: None,
+            permalink: None,
+            url_private: None,
+            url_private_download: None,
+        };
+        assert_eq!(super::slack_file_permalink(&file), None);
+
+        file.permalink = Some("   ".to_string());
+        assert_eq!(super::slack_file_permalink(&file), None);
+
+        file.permalink = Some("https://example.slack.com/files/U123/F123/credentials.txt".into());
+        assert_eq!(
+            super::slack_file_permalink(&file).as_deref(),
+            Some("https://example.slack.com/files/U123/F123/credentials.txt")
         );
     }
 }
