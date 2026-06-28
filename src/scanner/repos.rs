@@ -909,6 +909,7 @@ pub async fn fetch_slack_messages(
         max_results,
         global_args.ignore_certs,
         &file_output_dir,
+        args.content_filtering_args.max_file_size_bytes(),
     )
     .await?;
     {

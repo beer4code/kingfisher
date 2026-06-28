@@ -601,8 +601,7 @@ pub async fn enumerate_public_event_targets(
     let api_base = normalize_api_base(&github_url);
     let token = github_token();
     let exclude_set = build_exclude_matcher(exclude_repos);
-    let hours = if lookback_hours == 0 { 24 } else { lookback_hours };
-    let cutoff = Utc::now() - ChronoDuration::hours(hours.min(i64::MAX as u64) as i64);
+    let cutoff = Utc::now() - ChronoDuration::hours(lookback_hours.min(i64::MAX as u64) as i64);
     let mut targets = Vec::new();
 
     for username in users {

@@ -240,6 +240,7 @@ pub async fn download_files_to_dir(
     max_results: usize,
     ignore_certs: bool,
     output_dir: &PathBuf,
+    max_file_size: Option<u64>,
 ) -> Result<Vec<(PathBuf, String)>> {
     tokio::fs::create_dir_all(output_dir).await?;
     let files = search_files(api_url, query, max_results, ignore_certs).await?;
@@ -269,6 +270,18 @@ pub async fn download_files_to_dir(
                 )
             })?;
 
+        if let Some(limit) = max_file_size
+            && let Some(content_length) = response.content_length()
+            && content_length > limit
+        {
+            warn!(
+                "Skipping Slack file {} because its download size is {} bytes, exceeding the \
+                 max file size limit of {} bytes",
+                file.id, content_length, limit
+            );
+            continue;
+        }
+
         let original_name = file.name.as_deref().or(file.title.as_deref()).unwrap_or("file");
         let filename = format!(
             "{}_{}",
@@ -280,12 +293,33 @@ pub async fn download_files_to_dir(
             .await
             .with_context(|| format!("Failed to create Slack file download {}", path.display()))?;
         let mut body = response.bytes_stream();
+        let mut downloaded = 0u64;
+        let mut exceeded_limit = None;
         while let Some(chunk) = body.next().await {
             let chunk = chunk
                 .with_context(|| format!("Failed while downloading Slack file {}", file.id))?;
+            let next_size = downloaded.saturating_add(chunk.len() as u64);
+            if let Some(limit) = max_file_size
+                && next_size > limit
+            {
+                exceeded_limit = Some(limit);
+                break;
+            }
             output.write_all(&chunk).await.with_context(|| {
                 format!("Failed to write Slack file download {}", path.display())
             })?;
+            downloaded = next_size;
+        }
+
+        if let Some(limit) = exceeded_limit {
+            drop(output);
+            let _ = tokio::fs::remove_file(&path).await;
+            warn!(
+                "Skipping Slack file {} because its streamed download exceeded the max file size \
+                 limit of {} bytes",
+                file.id, limit
+            );
+            continue;
         }
         output
             .flush()
@@ -302,7 +336,56 @@ pub async fn download_files_to_dir(
 
 #[cfg(test)]
 mod tests {
-    use super::{SlackFile, SlackPagination, next_slack_page, sanitize_filename_component};
+    use super::{
+        SlackFile, SlackPagination, download_files_to_dir, next_slack_page,
+        sanitize_filename_component,
+    };
+    use axum::{
+        Router,
+        body::{Body, Bytes},
+        http::{Response, StatusCode, header},
+        response::IntoResponse,
+        routing::get,
+    };
+    use futures::{Future, stream};
+    use std::{convert::Infallible, ffi::OsString};
+    use tempfile::TempDir;
+    use tokio::sync::Mutex;
+    use url::Url;
+    use wiremock::{
+        Mock, MockServer, ResponseTemplate,
+        matchers::{method, path},
+    };
+
+    static SLACK_TOKEN_ENV: Mutex<()> = Mutex::const_new(());
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var_os(key);
+            unsafe { std::env::set_var(key, value) };
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match self.previous.take() {
+                Some(value) => unsafe { std::env::set_var(self.key, value) },
+                None => unsafe { std::env::remove_var(self.key) },
+            }
+        }
+    }
+
+    async fn with_slack_token<T>(future: impl Future<Output = T>) -> T {
+        let _lock = SLACK_TOKEN_ENV.lock().await;
+        let _token = EnvVarGuard::set("KF_SLACK_TOKEN", "xoxp-test");
+        future.await
+    }
 
     #[test]
     fn sanitize_filename_component_prevents_path_traversal() {
@@ -356,5 +439,124 @@ mod tests {
             super::slack_file_permalink(&file).as_deref(),
             Some("https://example.slack.com/files/U123/F123/credentials.txt")
         );
+    }
+
+    #[tokio::test]
+    async fn download_files_to_dir_skips_file_when_content_length_exceeds_limit() {
+        let server = MockServer::start().await;
+        let file_response = serde_json::json!({
+            "ok": true,
+            "files": {
+                "matches": [{
+                    "id": "F123",
+                    "name": "large.txt",
+                    "title": "large.txt",
+                    "permalink": "https://example.slack.com/files/F123/large.txt",
+                    "url_private_download": format!("{}/files/F123/download", server.uri())
+                }],
+                "pagination": {"page": 1, "page_count": 1}
+            }
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/search.files"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(file_response))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/files/F123/download"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("Content-Length", "31")
+                    .set_body_string("this body should not be written"),
+            )
+            .mount(&server)
+            .await;
+
+        let output = TempDir::new().expect("create temp dir");
+        let output_dir = output.path().to_path_buf();
+        let paths = with_slack_token(download_files_to_dir(
+            Url::parse(&format!("{}/", server.uri())).expect("server URL"),
+            "secret",
+            1,
+            false,
+            &output_dir,
+            Some(8),
+        ))
+        .await
+        .expect("download should skip oversized file without failing");
+
+        assert!(paths.is_empty());
+        assert!(std::fs::read_dir(&output_dir).expect("read output dir").next().is_none());
+    }
+
+    #[tokio::test]
+    async fn download_files_to_dir_removes_partial_file_when_stream_exceeds_limit() {
+        let listener =
+            tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind test server");
+        let base_url = format!("http://{}/", listener.local_addr().expect("server addr"));
+        let file_response = format!(
+            r#"{{
+                "ok": true,
+                "files": {{
+                    "matches": [{{
+                        "id": "F456",
+                        "name": "streamed.txt",
+                        "title": "streamed.txt",
+                        "permalink": "https://example.slack.com/files/F456/streamed.txt",
+                        "url_private_download": "{base_url}files/F456/download"
+                    }}],
+                    "pagination": {{"page": 1, "page_count": 1}}
+                }}
+            }}"#
+        );
+        let app = Router::new()
+            .route(
+                "/search.files",
+                get(move || {
+                    let file_response = file_response.clone();
+                    async move {
+                        (
+                            StatusCode::OK,
+                            [(header::CONTENT_TYPE, "application/json")],
+                            file_response,
+                        )
+                            .into_response()
+                    }
+                }),
+            )
+            .route(
+                "/files/F456/download",
+                get(|| async {
+                    let chunks = stream::iter([
+                        Ok::<_, Infallible>(Bytes::from_static(b"12345")),
+                        Ok::<_, Infallible>(Bytes::from_static(b"67890")),
+                    ]);
+                    Response::builder()
+                        .status(StatusCode::OK)
+                        .body(Body::from_stream(chunks))
+                        .expect("streaming response")
+                }),
+            );
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("test server should run");
+        });
+
+        let output = TempDir::new().expect("create temp dir");
+        let output_dir = output.path().to_path_buf();
+        let paths = with_slack_token(download_files_to_dir(
+            Url::parse(&base_url).expect("server URL"),
+            "secret",
+            1,
+            false,
+            &output_dir,
+            Some(8),
+        ))
+        .await
+        .expect("download should skip oversized stream without failing");
+        server.abort();
+
+        assert!(paths.is_empty());
+        assert!(std::fs::read_dir(&output_dir).expect("read output dir").next().is_none());
     }
 }
