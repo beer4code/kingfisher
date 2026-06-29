@@ -8,6 +8,8 @@ description: "Kingfisher release history: new features, rules, bug fixes, and im
 All notable changes to this project will be documented in this file.
 
 ## [v1.105.0]
+- Fixed the Dynatrace token rule with a corrected regex and tenant-scoped validation.
+  Thanks @beer4code. [#413](https://github.com/mongodb/kingfisher/pull/413)
 - Added GitHub public-event scanning via `--public-events`, with repeated `--user` or `--user-file` inputs and push/branch/create event expansion into commit, branch, or repository scans.
 - Expanded access-map coverage for Azure, AWS, Hugging Face, and Salesforce, including Azure credential aliases, AWS IAM policy evaluation, Hugging Face bucket metadata, and Salesforce API-version discovery plus read-only object and permission enumeration.
 - Added Hugging Face bucket scanning support, including `owner/bucket` and `hf://buckets/...` targets plus recursive bucket-tree enumeration.

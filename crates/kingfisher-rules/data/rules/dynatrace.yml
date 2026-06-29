@@ -15,7 +15,7 @@ rules:
     pattern_requirements:
       min_digits: 2
     min_entropy: 3.3
-    confidence: high
+    confidence: medium
     examples:
       - dt0c01.ST2EY72KQINMH574WMNVI7YN.G3DFPBEJYMODIDAEX454M7YWBUVEFOWKPRVMWFASS64NFH52PX6BNDVFFM572RZM
       - dt0s02.UZCK6ENL.2YQ2A3DZUEISRJSUU5544J3SC3TMPXSEEMNA5HK7RW54SJ6XKLYGMWJNKL7B2DNH
@@ -63,7 +63,7 @@ rules:
       )
       \b
     min_entropy: 2.0
-    confidence: high
+    confidence: medium
     visible: false
     examples:
       - wkf10640.live.dynatrace.com
