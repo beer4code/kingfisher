@@ -26,6 +26,13 @@ pub struct RuleSpecifierArgs {
     #[arg(global = true, long, default_values_t=["all".to_string()])]
     pub rule: Vec<String>,
 
+    /// Exclude the rule or ruleset with the given ID from the selected rules
+    ///
+    /// Applied after `--rule`, so `--rule all --exclude-rule kingfisher.aws.1`
+    /// enables everything except that rule.
+    #[arg(global = true, long = "exclude-rule", value_name = "RULE")]
+    pub exclude_rule: Vec<String>,
+
     /// Load built-in rules
     #[arg(global = true, long, default_value_t=true, action=ArgAction::Set)]
     pub load_builtins: bool,

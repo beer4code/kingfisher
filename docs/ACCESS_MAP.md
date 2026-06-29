@@ -14,6 +14,11 @@ There are two ways to produce access maps:
   and `--output <PATH>` if you prefer writing directly instead of using shell
   redirection.
 
+The HTML access-map viewer is built for triage: it starts in a topology view,
+groups identities by provider, lets you click through to individual resources,
+and keeps the detailed permissions in a side inspector. That makes it easier
+to compare two credentials at a glance without reading nested JSON by hand.
+
 > Access mapping runs additional network requests. Only use it when you are authorized to inspect the target account/workspace.
 
 ## How Access Map Works
@@ -130,6 +135,7 @@ kingfisher access-map slack ./slack.token --format json > slack.access-map.json
     - `aws_access_key_id` or `access_key_id`
     - `aws_secret_access_key` or `secret_access_key`
     - optional `aws_session_token` or `session_token`
+    - optional shell-style `export` prefixes and quoted values
 
 #### Standalone examples (AWS)
 
@@ -155,7 +161,9 @@ EOF
 kingfisher access-map aws ./aws.env --format json > aws.access-map.json
 ```
 
-Kingfisher performs read-only enumeration for the IAM principal and, when allowed by the credential, visible resources in several common AWS services including S3, EC2, IAM, Lambda, DynamoDB, KMS, Secrets Manager, SQS, SNS, RDS, ECR, and SSM Parameter Store.
+Kingfisher performs read-only enumeration for the IAM principal and, when allowed by the credential, visible resources in several common AWS services including S3, EC2, IAM, Lambda, DynamoDB, KMS, Secrets Manager, SQS, SNS, RDS, ECR, and SSM Parameter Store. Enumeration follows paginated API responses, and IAM users include permissions inherited from IAM groups.
+
+IAM policy summaries are intentionally conservative: explicit denies, `NotAction`, resource scoping, and conditions are called out in risk notes because a flat action list cannot fully reproduce AWS policy evaluation. Global services are mapped account-wide; regional services use the region selected by the AWS SDK configuration.
 
 ### Alibaba Cloud (`alibaba` / `aliyun`)
 
@@ -206,11 +214,24 @@ Kingfisher resolves the Alibaba Cloud caller identity with `sts:GetCallerIdentit
 kingfisher access-map gcp ./service-account.json --format json > gcp.access-map.json
 ```
 
-### Azure Storage (`azure`)
+### Microsoft Azure, Entra ID, and Microsoft Graph (`azure`)
 
-- **Credential**: a JSON file containing:
-  - `storage_account` (string)
-  - `storage_key` (string, base64-encoded account key as provided by Azure)
+The Azure mapper supports three credential families:
+
+- **Azure Storage account key**:
+  - `storage_account`
+  - `storage_key` (base64-encoded account key)
+- **Microsoft Entra application / service-principal credentials**:
+  - `tenant_id`, `client_id`, and `client_secret`
+  - Azure CLI aliases are accepted: `tenant`, `appId`, and `password`
+  - Azure SDK/environment aliases such as `AZURE_TENANT_ID`,
+    `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET` are also accepted in
+    `KEY=VALUE` files
+- **Existing OAuth2 access tokens**:
+  - `graph_access_token` for Microsoft Graph
+  - `management_access_token` or `arm_access_token` for Azure Resource Manager
+  - `access_token` for a single token; Kingfisher uses the JWT audience to
+    distinguish Azure Resource Manager from Microsoft Graph when possible
 
 #### Standalone example (Azure Storage)
 
@@ -226,6 +247,64 @@ kingfisher access-map azure ./azure-storage.json --format json > azure.access-ma
 ```
 
 Kingfisher treats the account key as full-control Storage credentials and performs best-effort enumeration across Blob containers, File shares, and Queue resources reachable with that key.
+
+#### Standalone example (Microsoft Entra client credentials)
+
+```bash
+cat > ./azure-entra.json <<'EOF'
+{
+  "tenant_id": "11111111-2222-4333-8444-555555555555",
+  "client_id": "12345678-90ab-4cde-8f01-234567890abc",
+  "client_secret": "..."
+}
+EOF
+
+kingfisher access-map azure ./azure-entra.json --format json > azure.access-map.json
+```
+
+For Entra client credentials, Kingfisher requests separate read-only access
+tokens for Microsoft Graph and Azure Resource Manager using each resource's
+`/.default` scope. It then performs best-effort mapping of:
+
+- the Entra user or service principal and tenant;
+- Graph application permissions or delegated scopes carried by the token;
+- transitive Entra group and directory-role membership when allowed;
+- visible Azure subscriptions and resource groups;
+- direct Azure RBAC assignments, group-inherited assignments when Entra group
+  membership is visible, and their role definitions.
+
+Graph and Azure Resource Manager permission failures are recorded as partial
+results instead of discarding identity or token-claim context that was already
+resolved. Enumeration is capped to avoid unbounded traversal in very large
+enterprise tenants.
+
+#### Existing OAuth2 token example
+
+```bash
+cat > ./azure-token.json <<'EOF'
+{
+  "graph_access_token": "eyJ...",
+  "management_access_token": "eyJ..."
+}
+EOF
+
+kingfisher access-map azure ./azure-token.json --format json
+```
+
+A single access token only maps the API audience for which it was issued.
+Supplying both Graph and management tokens gives the broadest view. Kingfisher
+decodes JWT claims for mapping hints, but API calls remain the source of truth;
+Microsoft access-token formats are not guaranteed to remain readable JWTs.
+
+#### Sovereign and private endpoint overrides
+
+Credential documents may set `authority_host`, `graph_base_url`, and
+`management_base_url` for Microsoft national clouds or authorized test/private
+endpoints. Keep all three values aligned with the target cloud.
+
+During scanning, validated Entra client secrets detected with their tenant and
+client IDs, plus Azure-context OAuth2 JWTs, can automatically feed
+`scan --access-map`.
 
 ### Azure DevOps (scan `--access-map` only)
 
@@ -260,7 +339,12 @@ kingfisher access-map mongodb ./mongodb.uri --format json > mongodb.access-map.j
   - User access tokens (commonly `hf_...`)
   - Organization API tokens (commonly `api_org_...`)
 
-Kingfisher queries the `/api/whoami-v2` endpoint to resolve the token identity, role, and organization memberships. It also performs best-effort enumeration of authored models, datasets, and Spaces for the user and visible organizations to assess the blast radius.
+Kingfisher queries the `/api/whoami-v2` endpoint to resolve the token identity,
+role, and organization memberships. It uses Hugging Face's unified repository
+storage listing when available, with best-effort fallback enumeration, to map
+visible models, datasets, Spaces, and storage buckets. Resource visibility
+(`public`, `private`, or protected Spaces) and storage usage are included when
+reported by the API.
 
 #### Standalone example (Hugging Face)
 
@@ -272,7 +356,14 @@ kingfisher access-map huggingface ./huggingface.token --format json > huggingfac
 #### Notes (Hugging Face)
 
 - Access map uses `https://huggingface.co/api` as the API base.
-- Token role (read, write, admin, fineGrained) is derived from the `auth` section of the whoami response when available.
+- Token role (`read`, `write`, or `fineGrained`) is derived from the `auth`
+  section of the whoami response when available.
+- Fine-grained tokens are not treated as administrator tokens. Their exact
+  per-resource scopes are not exposed by `whoami`, so the map reports resources
+  the token could enumerate and notes that limitation.
+- Organization roles (`no_access`, `read`, `contributor`, `write`, and `admin`)
+  are recorded separately from the token role because effective access is the
+  intersection of both.
 
 ### Gitea (`gitea`)
 
@@ -411,13 +502,17 @@ kingfisher access-map anthropic ./anthropic.token --format json > anthropic.acce
     - `instance_url` (or `instance`), such as `https://mydomain.my.salesforce.com`
   - Free-form text containing both:
     - a Salesforce access token (`00...!...`)
-    - an instance host (`<instance>.my.salesforce.com`)
+    - an instance host (`<instance>.my.salesforce.com`, a sandbox My Domain, or a legacy host such as `na123.salesforce.com`)
 
 Kingfisher performs read-only enumeration via:
 
-- `GET /services/data/v60.0/limits` to confirm API access and gather account-level API context.
+- `GET /services/data/` to negotiate the newest API version advertised by the org (falling back to `v60.0` if discovery fails).
+- `GET /services/data/<version>/limits` to confirm API access and gather account-level API context.
 - `GET /services/oauth2/userinfo` for identity metadata when available.
-- `GET /services/data/v60.0/sobjects` for visible object metadata (best-effort).
+- `GET /services/data/<version>/sobjects` for effective per-object query, search, create, update, delete, and undelete capabilities.
+- Read-only SOQL queries for the current user's profile and role, assigned permission sets and permission-set groups, and high-signal effective permissions exposed by `UserPermissionAccess` (best-effort).
+
+Object capabilities are prioritized so sensitive CRM, identity, content, audit, and custom objects remain visible when an org exposes more than the report limit. Salesforce record sharing and field-level security can further restrict the records and fields available within an object.
 
 #### Standalone example (Salesforce)
 
@@ -434,7 +529,8 @@ kingfisher access-map salesforce ./salesforce.json --format json > salesforce.ac
 
 #### Notes (Salesforce)
 
-- Access map currently targets `https://<instance>.my.salesforce.com` and API version `v60.0`.
+- Access map accepts production My Domain, sandbox My Domain, and legacy Salesforce instance hosts. Authentication hosts such as `login.salesforce.com` and non-Salesforce hosts are rejected.
+- The mapper is read-only and does not issue record-count, export, or data-retrieval queries.
 
 ### Weights & Biases (`weightsandbiases` / `wandb`)
 

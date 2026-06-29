@@ -32,6 +32,7 @@ rules:
             - type: WordMatch
               words:
                 - "Provided API key is invalid"
+                - "cannot access this endpoint"
               negative: true
     references:
       - https://docs.voyageai.com/reference
@@ -69,6 +70,7 @@ rules:
             - type: WordMatch
               words:
                 - "Provided API key is invalid"
+                - "cannot access this endpoint"
               negative: true
     references:
       - https://docs.voyageai.com/reference

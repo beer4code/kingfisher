@@ -37,7 +37,31 @@ For list-typed values both sources are concatenated, so passing
 `--skip-word EXAMPLE` and listing `EXAMPLE` again in `kingfisher.yaml` is safe
 but redundant. The one nuance: `rules.enabled` *replaces* the synthetic
 `["all"]` default when you don't pass `--rule`, so a config that lists
-`["custom"]` actually narrows the selection.
+`["custom"]` actually narrows the selection. `rules.disabled` is applied
+after the enabled set is resolved, so `enabled: ["all"]` plus a few disabled
+rule IDs means "scan with everything except these rules."
+
+`rules.enabled` and `rules.disabled` both accept exact rule IDs and family
+prefixes:
+
+```yaml
+rules:
+  enabled:
+    - kingfisher.github.1   # include exact rule IDs
+    - kingfisher.github.2
+  disabled:
+    - kingfisher.openai.1    # exclude exact rule IDs
+    - kingfisher.openai.2
+```
+
+Use a prefix like `kingfisher.github` if you want to include or exclude an
+entire family instead of single rules. Wildcards like `kingfisher.g*` are not
+supported.
+
+The CLI equivalents are repeated `--rule` and `--exclude-rule` flags, for
+example `kingfisher scan ./repo --rule kingfisher.github.1 --rule
+kingfisher.github.2 --exclude-rule kingfisher.openai.1 --exclude-rule
+kingfisher.openai.2`.
 
 ## End-to-end: create a config and scan with it
 
@@ -97,57 +121,6 @@ kingfisher scan . --config ./kingfisher.yaml --confidence low
 # scan.confidence: high in YAML → CLI flag wins, runs at low confidence
 ```
 
-## Provider endpoint overrides
-
-For self-hosted or private instances of GitHub, GitLab, Gitea, Jira, Confluence,
-or Artifactory you can redirect validation and revocation requests away from the
-public cloud endpoints.
-
-**Per-run (CLI):**
-
-```bash
-# Single provider
-kingfisher scan ./repo \
-  --endpoint github=https://ghe.corp.example.com \
-  --allow-internal-ips
-
-# Multiple providers at once via a YAML file
-kingfisher scan ./repo \
-  --endpoint-config ./kingfisher-endpoints.yml \
-  --allow-internal-ips
-```
-
-**Persisted in `kingfisher.yaml`** (under `global:`):
-
-```yaml
-global:
-  endpoints:
-    - github=https://ghe.corp.example.com
-    - gitlab=https://gitlab.corp.example.com
-  endpoint_config: ./kingfisher-endpoints.yml  # merged with `endpoints` list
-  allow_internal_ips: true                      # required for private/localhost URLs
-```
-
-`--endpoint-config` / `endpoint_config` points to a YAML file that maps provider
-keys to base URLs:
-
-```yaml
-endpoints:
-  github: https://ghe.corp.example.com
-  gitlab: https://gitlab.corp.example.com
-  jira: https://jira.corp.example.com
-  confluence: https://confluence.corp.example.com
-  artifactory: http://localhost:8071
-```
-
-Supported provider keys: `github`, `gitlab`, `gitea`, `jira`, `jira-cloud`,
-`confluence`, `artifactory`. For endpoints on private IPs or `localhost`,
-always combine with `--allow-internal-ips` (or `global.allow_internal_ips: true`
-in `kingfisher.yaml`) — Kingfisher blocks SSRF by default.
-
-See the [GitHub Enterprise section](basic-scanning.md#scan-a-github-enterprise-self-hosted-github-instance)
-in the scanning guide for end-to-end examples.
-
 ## Webhook URL policy
 
 `alerts.webhooks[].url` (and `--alert-webhook URL`) **must use `https://`**.
@@ -206,6 +179,8 @@ scan:
 
 rules:
   enabled: ["all"]              # list, additive                 (--rule)
+  disabled:                     # list, additive                 (--exclude-rule)
+    - kingfisher.github.1
   paths:                        # list, additive                 (--rules-path)
     - ./custom-rules/
   load_builtins: true           # bool                           (--load-builtins)
@@ -286,7 +261,7 @@ git:
 Unknown fields are rejected (typo protection). Empty sections and a missing
 top-level file are both fine.
 
-Rule cache pruning is intentionally CLI-only in v1. Use `kingfisher rules prune-cache` for manual cleanup, or pass `--prune-rule-cache` with optional `--rule-cache-max-entries` and `--rule-cache-max-age` thresholds on scans.
+Rule cache pruning is intentionally CLI-only. Use `kingfisher rules prune-cache` for manual cleanup, or pass `--prune-rule-cache` with optional `--rule-cache-max-entries` and `--rule-cache-max-age` thresholds on scans.
 
 ## Example: CI workflow
 

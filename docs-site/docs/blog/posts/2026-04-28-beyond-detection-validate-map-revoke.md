@@ -109,10 +109,11 @@ kingfisher access-map github ./github.token --format json > github.access-map.js
 kingfisher access-map gcp ./service-account.json --format json > gcp.access-map.json
 ```
 
-The access-map HTML report renders the access map as a
-clickable tree: identity at the root, then services, then individual
-resources and permissions. It is a much faster way to explain severity to
-an incident commander or manager than pasting IAM JSON into chat.
+The access-map HTML report renders the access map as an interactive
+graph with a details panel: identities are grouped by provider, resources
+are easy to click through, and the permissions stay visible in context.
+It is a much faster way to explain severity to an incident commander or
+manager than pasting IAM JSON into chat.
 
 ## 3. Revocation — revoke the token from where you found it
 

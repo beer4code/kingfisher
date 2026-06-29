@@ -562,8 +562,10 @@ impl DetailsReporter {
         prov: &GitRepoOrigin,
         source_span: &SourceSpan,
     ) -> Option<serde_json::Value> {
-        let repo_url = get_repo_url(&prov.repo_path)
-            .unwrap_or_else(|_| prov.repo_path.to_string_lossy().to_string().into());
+        let repo_url = self
+            .repo_artifact_url(prov.repo_path.as_ref())
+            .or_else(|| get_repo_url(&prov.repo_path).ok().map(|url| url.to_string()))
+            .unwrap_or_else(|| prov.repo_path.to_string_lossy().to_string());
         let repo_url = repo_url.trim_end_matches(".git").to_string();
         if let Some(cs) = &prov.first_commit {
             let cmd = &cs.commit_metadata;
@@ -708,8 +710,8 @@ impl DetailsReporter {
         ds.confluence_links().get(path).cloned()
     }
 
-    /// If the given file path corresponds to a Slack message downloaded to disk,
-    /// return the permalink for that message.
+    /// If the given path corresponds to a Slack message or file downloaded to disk,
+    /// return its permalink.
     fn slack_message_url(&self, path: &std::path::Path) -> Option<String> {
         let ds = self.datastore.lock().ok()?;
         ds.slack_links().get(path).cloned()
@@ -1637,6 +1639,7 @@ mod tests {
             gitlab::GitLabRepoType,
             rules::{RuleCacheArgs, RuleSpecifierArgs},
         },
+        findings_store,
         git_commit_metadata::CommitMetadata,
         location::{Location, OffsetSpan, SourcePoint, SourceSpan},
         matcher::{SerializableCapture, SerializableCaptures},
@@ -1647,6 +1650,7 @@ mod tests {
     use smallvec::SmallVec;
     use std::collections::BTreeMap;
     use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
     use tempfile::tempdir;
 
     #[test]
@@ -1764,6 +1768,8 @@ mod tests {
                 all_github_organizations: false,
                 github_api_url: Url::parse("https://api.github.com/").unwrap(),
                 github_repo_type: GitHubRepoType::Source,
+                github_event_user: Vec::new(),
+                github_event_lookback_hours: 24,
                 gitlab_user: Vec::new(),
                 gitlab_group: Vec::new(),
                 gitlab_exclude: Vec::new(),
@@ -1776,6 +1782,7 @@ mod tests {
                 huggingface_model: Vec::new(),
                 huggingface_dataset: Vec::new(),
                 huggingface_space: Vec::new(),
+                huggingface_bucket: Vec::new(),
                 huggingface_exclude: Vec::new(),
                 gitea_user: Vec::new(),
                 gitea_organization: Vec::new(),
@@ -2129,6 +2136,66 @@ mod tests {
         assert_eq!(
             file_url,
             "https://dev.azure.com/org/project/_git/repo/commit/0123456789abcdef?path=/dir/file.txt&line=7"
+        );
+    }
+
+    #[test]
+    fn extract_git_metadata_uses_registered_repo_permalink_after_cleanup() {
+        let store_root = tempdir().unwrap();
+        let datastore = Arc::new(Mutex::new(findings_store::FindingsStore::new(
+            store_root.path().to_path_buf(),
+        )));
+
+        let repo_root = tempdir().unwrap();
+        let repo_path = repo_root.path().to_path_buf();
+        drop(repo_root);
+        assert!(!repo_path.exists());
+
+        let repo_url = "https://github.com/mongodb/kingfisher.git";
+        datastore.lock().unwrap().register_repo_link(repo_path.clone(), repo_url.to_string());
+
+        let reporter = DetailsReporter {
+            datastore,
+            styles: Styles::new(false),
+            only_valid: false,
+            audit_context: None,
+        };
+
+        let commit_metadata = Arc::new(CommitMetadata {
+            commit_id: ObjectId::from_hex(b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap(),
+            committer_name: "Alice".into(),
+            committer_email: "alice@exmple.com".into(),
+            committer_timestamp: Time::new(0, 0),
+        });
+        let origin = Origin::from_git_repo_with_first_commit(
+            Arc::new(repo_path),
+            commit_metadata,
+            "tests/smoke_branch.rs".to_string(),
+        );
+        let source_span = SourceSpan {
+            start: SourcePoint { line: 29, column: 0 },
+            end: SourcePoint { line: 29, column: 0 },
+        };
+
+        let git = match &origin {
+            Origin::GitRepo(repo_origin) => reporter
+                .extract_git_metadata(repo_origin, &source_span)
+                .expect("expected git metadata"),
+            _ => unreachable!("expected git origin"),
+        };
+
+        assert_eq!(git["repository_url"].as_str(), Some("https://github.com/mongodb/kingfisher"));
+        assert_eq!(
+            git["commit"]["url"].as_str(),
+            Some(
+                "https://github.com/mongodb/kingfisher/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )
+        );
+        assert_eq!(
+            git["file"]["url"].as_str(),
+            Some(
+                "https://github.com/mongodb/kingfisher/blob/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/tests/smoke_branch.rs#L29"
+            )
         );
     }
 }

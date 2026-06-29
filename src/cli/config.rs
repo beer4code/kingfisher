@@ -16,6 +16,7 @@
 //!   redact: false
 //! rules:
 //!   enabled: ["all"]
+//!   disabled: ["kingfisher.aws.1"]
 //!   load_builtins: true
 //!   cache: true
 //!   cache_dir: ./.kingfisher-cache
@@ -120,6 +121,9 @@ pub struct RulesConfig {
     /// Additive — merged with `--rule` selections.
     #[serde(default)]
     pub enabled: Vec<String>,
+    /// Additive — merged with `--exclude-rule` exclusions.
+    #[serde(default, alias = "exclude", alias = "excluded")]
+    pub disabled: Vec<String>,
     /// Additive — merged with `--rules-path` paths.
     #[serde(default)]
     pub paths: Vec<PathBuf>,
@@ -508,6 +512,7 @@ scan:
   git_repo_timeout: 600
 rules:
   enabled: ["all", "default"]
+  disabled: ["kingfisher.github.1", "kingfisher.github.2"]
   paths: ["./custom-rules"]
   load_builtins: true
   cache: true
@@ -559,6 +564,7 @@ git:
         assert_eq!(cfg.scan.redact, Some(true));
         assert_eq!(cfg.scan.jobs, Some(8));
         assert_eq!(cfg.rules.enabled, vec!["all", "default"]);
+        assert_eq!(cfg.rules.disabled, vec!["kingfisher.github.1", "kingfisher.github.2"]);
         assert_eq!(cfg.rules.paths.len(), 1);
         assert_eq!(cfg.rules.cache, Some(true));
         assert_eq!(
@@ -606,7 +612,17 @@ git:
         assert!(cfg.filters.skip_words.is_empty());
         assert!(cfg.scan.confidence.is_none());
         assert!(cfg.rules.enabled.is_empty());
+        assert!(cfg.rules.disabled.is_empty());
         assert!(cfg.global.endpoints.is_empty());
+    }
+
+    #[test]
+    fn parse_rules_disabled_aliases() {
+        let cfg = parse_str("rules:\n  exclude: [kingfisher.github.1]\n").unwrap();
+        assert_eq!(cfg.rules.disabled, vec!["kingfisher.github.1"]);
+
+        let cfg = parse_str("rules:\n  excluded: [kingfisher.openai]\n").unwrap();
+        assert_eq!(cfg.rules.disabled, vec!["kingfisher.openai"]);
     }
 
     #[test]

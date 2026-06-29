@@ -143,7 +143,7 @@ pub enum AccessMapRequest {
     },
     /// A GCP service account JSON document.
     Gcp { credential_json: String, fingerprint: String },
-    /// An Azure storage account JSON document.
+    /// An Azure Storage, Entra client-credential, or OAuth2 token document.
     Azure { credential_json: String, containers: Option<Vec<String>>, fingerprint: String },
     /// An Azure DevOps personal access token with organization.
     AzureDevops { token: String, organization: String, fingerprint: String },
@@ -400,7 +400,7 @@ pub async fn map_requests(requests: Vec<AccessMapRequest>) -> Vec<AccessMapResul
             AccessMapRequest::Azure { credential_json, containers, fingerprint } => (
                 azure::map_access_from_json_with_hints(&credential_json, containers.as_deref())
                     .await
-                    .unwrap_or_else(|err| build_failed_result("azure", "storage_account", err)),
+                    .unwrap_or_else(|err| build_failed_result("azure", "credential", err)),
                 fingerprint,
             ),
             AccessMapRequest::AzureDevops { token, organization, fingerprint } => (

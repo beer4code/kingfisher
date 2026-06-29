@@ -1,6 +1,7 @@
-use anyhow::bail;
+use anyhow::{Context, bail};
 use clap::{Args, Subcommand, ValueEnum, ValueHint};
 use std::{
+    fs,
     net::IpAddr,
     path::{Path, PathBuf},
     str::FromStr,
@@ -365,6 +366,52 @@ pub enum ListRepositoriesCommand {
     Huggingface { specifiers: HuggingFaceRepoSpecifiers },
 }
 
+fn load_github_event_users(
+    cli_users: Vec<String>,
+    user_file: Option<&Path>,
+) -> anyhow::Result<Vec<String>> {
+    fn is_valid_github_username(user: &str) -> bool {
+        user.len() <= 39
+            && !user.starts_with('-')
+            && !user.ends_with('-')
+            && user.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    }
+
+    fn push_user(users: &mut Vec<String>, raw: &str, source: &str) -> anyhow::Result<()> {
+        let user = raw.trim().trim_start_matches('@');
+        if user.is_empty() {
+            return Ok(());
+        }
+        if !is_valid_github_username(user) {
+            bail!("Invalid GitHub username in {source}: {user:?}");
+        }
+        if !users.iter().any(|existing| existing.eq_ignore_ascii_case(user)) {
+            users.push(user.to_string());
+        }
+        Ok(())
+    }
+
+    let mut users = Vec::new();
+    for user in &cli_users {
+        push_user(&mut users, user, "--user")?;
+    }
+
+    if let Some(path) = user_file {
+        let contents = fs::read_to_string(path).with_context(|| {
+            format!("Failed to read GitHub public event user file {}", path.display())
+        })?;
+        for (line_number, line) in contents.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            push_user(&mut users, trimmed, &format!("{}:{}", path.display(), line_number + 1))?;
+        }
+    }
+
+    Ok(users)
+}
+
 impl ScanCommandArgs {
     fn infer_positional_git_urls(&mut self) {
         let mut inferred_git_urls = Vec::new();
@@ -408,25 +455,58 @@ impl ScanCommandArgs {
                     None
                 }
                 ScanInputCommand::Github(args) => {
-                    if args.specifiers.is_empty() {
+                    let mut specifiers = args.specifiers;
+                    if args.event_user_file.is_some() && !args.public_events {
+                        bail!("--user-file can only be used with --public-events");
+                    }
+                    if args.public_events {
+                        let event_users = load_github_event_users(
+                            std::mem::take(&mut specifiers.user),
+                            args.event_user_file.as_deref(),
+                        )?;
+                        if event_users.is_empty() {
+                            bail!(
+                                "You must specify at least one --user or --user-file when scanning GitHub public events"
+                            );
+                        }
+                        if !specifiers.organization.is_empty() || specifiers.all_organizations {
+                            bail!(
+                                "GitHub public event scanning supports --user and --user-file only"
+                            );
+                        }
+                        if args.include_contributors {
+                            bail!("--include-contributors cannot be used with --public-events");
+                        }
+                        if args.list_only {
+                            bail!("--list-only cannot be used with --public-events");
+                        }
+                        if specifiers.repo_type
+                            != crate::cli::commands::github::GitHubRepoType::Source
+                        {
+                            bail!("--repo-type cannot be used with --public-events");
+                        }
+
+                        scan_args.input_specifier_args.github_event_user = event_users;
+                        scan_args.input_specifier_args.github_event_lookback_hours =
+                            args.event_lookback_hours;
+                        scan_args.input_specifier_args.github_exclude = specifiers.exclude_repos;
+                        scan_args.input_specifier_args.github_api_url = args.api_url;
+                        scan_args.input_specifier_args.repo_clone_limit = args.repo_clone_limit;
+                        None
+                    } else if specifiers.is_empty() {
                         bail!(
                             "You must specify at least one --user, --org, or use --all-orgs when scanning GitHub"
                         );
-                    }
-                    if args.list_only {
-                        Some(ListRepositoriesCommand::Github {
-                            api_url: args.api_url,
-                            specifiers: args.specifiers,
-                        })
+                    } else if args.list_only {
+                        Some(ListRepositoriesCommand::Github { api_url: args.api_url, specifiers })
                     } else {
-                        scan_args.input_specifier_args.github_user = args.specifiers.user;
+                        scan_args.input_specifier_args.github_user = specifiers.user;
                         scan_args.input_specifier_args.github_organization =
-                            args.specifiers.organization;
-                        scan_args.input_specifier_args.github_exclude =
-                            args.specifiers.exclude_repos;
+                            specifiers.organization;
+                        scan_args.input_specifier_args.github_exclude = specifiers.exclude_repos;
                         scan_args.input_specifier_args.all_github_organizations =
-                            args.specifiers.all_organizations;
-                        scan_args.input_specifier_args.github_repo_type = args.specifiers.repo_type;
+                            specifiers.all_organizations;
+                        scan_args.input_specifier_args.github_repo_type = specifiers.repo_type;
                         scan_args.input_specifier_args.github_api_url = args.api_url;
                         scan_args.input_specifier_args.repo_clone_limit = args.repo_clone_limit;
                         scan_args.input_specifier_args.include_contributors =
@@ -539,7 +619,7 @@ impl ScanCommandArgs {
                 ScanInputCommand::Huggingface(args) => {
                     if args.specifiers.is_empty() {
                         bail!(
-                            "You must specify at least one --user, --org, --model, --dataset, or --space when scanning Hugging Face"
+                            "You must specify at least one --user, --org, --model, --dataset, --space, or --bucket when scanning Hugging Face"
                         );
                     }
                     if args.list_only {
@@ -552,6 +632,7 @@ impl ScanCommandArgs {
                         scan_args.input_specifier_args.huggingface_dataset =
                             args.specifiers.dataset;
                         scan_args.input_specifier_args.huggingface_space = args.specifiers.space;
+                        scan_args.input_specifier_args.huggingface_bucket = args.specifiers.bucket;
                         scan_args.input_specifier_args.huggingface_exclude =
                             args.specifiers.exclude;
                         None
@@ -732,10 +813,10 @@ pub enum ScanInputCommand {
     /// Enumerate and scan Azure DevOps repositories
     Azure(AzureScanArgs),
 
-    /// Enumerate and scan Hugging Face repositories
+    /// Enumerate and scan Hugging Face repositories and buckets
     Huggingface(HuggingfaceScanArgs),
 
-    /// Scan Slack search results
+    /// Scan Slack messages and files matching a search query
     Slack(SlackScanArgs),
 
     /// Scan Microsoft Teams messages via Microsoft Graph
@@ -775,6 +856,18 @@ pub struct FilesystemScanArgs {
 pub struct GithubScanArgs {
     #[command(flatten)]
     pub specifiers: GitHubRepoSpecifiers,
+
+    /// Scan recent public events for the specified --user actors
+    #[arg(long = "public-events", alias = "events", default_value_t = false)]
+    pub public_events: bool,
+
+    /// Look back this many hours when scanning --public-events
+    #[arg(long = "event-lookback-hours", value_name = "HOURS", default_value_t = 24)]
+    pub event_lookback_hours: u64,
+
+    /// Read GitHub public-event users from a file, one username per line
+    #[arg(long = "user-file", value_name = "FILE", value_hint = ValueHint::FilePath)]
+    pub event_user_file: Option<PathBuf>,
 
     /// Include contributor repositories when scanning git URLs
     #[arg(long = "include-contributors", default_value_t = false)]
@@ -894,7 +987,7 @@ pub struct HuggingfaceScanArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct SlackScanArgs {
-    /// Slack search query
+    /// Slack search query to apply to messages and files
     #[arg(value_name = "QUERY")]
     pub query: String,
 
@@ -907,7 +1000,7 @@ pub struct SlackScanArgs {
     )]
     pub api_url: Url,
 
-    /// Maximum number of results to fetch
+    /// Maximum number of message results and file results to fetch
     #[arg(long = "max-results", default_value_t = 100)]
     pub max_results: usize,
 }

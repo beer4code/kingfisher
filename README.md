@@ -7,7 +7,7 @@
     <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License" style="height: 24px;" />
   </a>
   <a href="https://github.com/mongodb/kingfisher">
-    <img src="https://img.shields.io/badge/Detection%20Rules-954-2ea043.svg" alt="Detection Rules" style="height: 24px;" />
+    <img src="https://img.shields.io/badge/Detection%20Rules-958-2ea043.svg" alt="Detection Rules" style="height: 24px;" />
   </a>
   <br>
   <a href="https://github.com/mongodb/kingfisher/pkgs/container/kingfisher">
@@ -20,9 +20,9 @@
 
 Kingfisher is an open source secret scanner and **live secret validation** tool built in Rust.
 
-It combines Intel's SIMD-accelerated regex engine (Hyperscan) with language-aware parsing to achieve high accuracy at massive scale, and ships with [950+ built-in rules](https://mongodb.github.io/kingfisher/rules/builtin-rules/) to detect, **validate**, and triage leaked API keys, tokens, and credentials before they ever reach production.
+It combines Intel's SIMD-accelerated regex engine (Hyperscan) with language-aware parsing to achieve high accuracy at massive scale, and ships with [958 built-in rules](https://mongodb.github.io/kingfisher/rules/builtin-rules/) to detect, **validate**, and triage leaked API keys, tokens, and credentials before they ever reach production.
 
-Kingfisher also ships a **browser-based report viewer** that visualizes and triages findings from Kingfisher **and** from Gitleaks and TruffleHog JSON reports — so you can import scans from other tools and triage them in the same UI. A [hosted copy of the viewer](https://mongodb.github.io/kingfisher/viewer/) is published on the Kingfisher docs site [or run locally](#3-scan-and-view-results-in-browser)
+Kingfisher also ships a **browser-based report viewer** that visualizes and triages findings from Kingfisher, SARIF, Gitleaks, and TruffleHog reports — so you can import scans from other tools and triage them in the same UI. A [hosted copy of the viewer](https://mongodb.github.io/kingfisher/viewer/) is published on the Kingfisher docs site [or run locally](#3-scan-and-view-results-in-browser)
 
 Designed for offensive security engineers and blue-team defenders alike, Kingfisher helps you scan repositories, cloud storage, chat, docs, and CI pipelines to find and verify exposed secrets quickly.
 
@@ -38,6 +38,7 @@ Kingfisher is a high-performance, open source secret detection tool for source c
 - Validate discovered credentials against provider APIs to reduce false positives
 - Revoke supported secrets directly from the CLI
 - Generate JSON, SARIF, TOON, and HTML outputs for security teams, compliance, and CI
+- Send scan summaries and optional per-finding details to Slack, Microsoft Teams, Discord, Mattermost, Google Chat, or any HTTPS webhook ([docs/ALERTS.md](/docs/ALERTS.md))
 
 ## Key Features
 
@@ -54,9 +55,9 @@ Kingfisher is a high-performance, open source secret detection tool for source c
 
 </div>
 
-### Performance, Accuracy, and 954 Rules
+### Performance, Accuracy, and 958 Rules
 - **Performance**: multithreaded, Hyperscan‑powered scanning built for huge codebases  
-- **Extensible rules**: 954 built-in rules plus YAML-defined custom rules ([docs/RULES.md](/docs/RULES.md))
+- **Extensible rules**: 958 built-in rules plus YAML-defined custom rules ([docs/RULES.md](/docs/RULES.md))
 - **Validate & Revoke**: live validation of discovered secrets, plus direct revocation for supported platforms (GitHub, GitLab, Slack, AWS, GCP, and more) ([docs/USAGE.md](/docs/USAGE.md))
 - **Revocation support matrix**: current built-in revocation coverage across providers and rule IDs ([docs/REVOCATION_PROVIDERS.md](/docs/REVOCATION_PROVIDERS.md))
 - **Blast Radius Mapping**: instantly map leaked keys to their effective cloud identities and exposed resources with `--access-map` (alias `--blast-radius`). Supports 43 providers (see table below).
@@ -66,7 +67,7 @@ Kingfisher is a high-performance, open source secret detection tool for source c
 - **Python Bytecode (.pyc) Scanning**: Extracts and scans string constants from compiled Python (`.pyc`, `.pyo`) files
 - **Baseline management**: generate and track baselines to suppress known secrets ([docs/BASELINE.md](/docs/BASELINE.md))
 - **Checksum-aware detection**: verifies tokens with built-in checksums (e.g., GitHub, Confluent, Zuplo) — no API calls required
-- **Report Viewer (local + hosted)**: Visualize and triage Kingfisher, **Gitleaks, and TruffleHog** JSON output locally with `kingfisher view ./report.json` or online with the [hosted viewer](https://mongodb.github.io/kingfisher/viewer/). Multiple files, directories, and imported third-party reports are merged and deduplicated. See [docs/USAGE.md](/docs/USAGE.md#report-viewer-local-and-hosted).
+- **Report Viewer (local + hosted)**: Visualize and triage Kingfisher, **SARIF, Gitleaks, and TruffleHog** output locally with `kingfisher view ./report.json` or online with the [hosted viewer](https://mongodb.github.io/kingfisher/viewer/). Multiple files, directories, and imported third-party reports are merged and deduplicated. See [docs/USAGE.md](/docs/USAGE.md#report-viewer-local-and-hosted).
 - **Audit reporting**: Generate compliance-oriented HTML reports with scan metadata and validation ordering
 - **Library crates**: Embed Kingfisher's scanning engine in your own Rust applications ([docs/LIBRARY.md](docs/LIBRARY.md))
 
@@ -90,6 +91,7 @@ NOTE: Replay has been slowed down for demo
 - [What Is Kingfisher?](#what-is-kingfisher)
 - [Key Features](#key-features)
 - [Report Viewer (local and hosted)](#report-viewer-local-and-hosted)
+- [Alert Webhooks](#alert-webhooks)
 - [Compliance and Audit-Ready Scans](#compliance-and-audit-ready-scans)
 - [Benchmark Results](#benchmark-results)
 - [Getting Started](#getting-started)
@@ -142,11 +144,14 @@ kingfisher scan /path/to/code
 kingfisher scan /path/to/code --view-report
 ```
 
-You can also open existing Kingfisher, Gitleaks, or TruffleHog JSON reports with `kingfisher view <report.json>`:
+You can also open existing Kingfisher, SARIF, Gitleaks, or TruffleHog reports with `kingfisher view <report>`:
 
 ```bash
 # Kingfisher report
 kingfisher view kingfisher.json
+
+# Kingfisher SARIF output
+kingfisher view kingfisher.sarif
 
 # Import a Gitleaks JSON report
 kingfisher view gitleaks-report.json
@@ -155,9 +160,9 @@ kingfisher view gitleaks-report.json
 kingfisher view trufflehog-report.jsonl
 
 # Combine multiple reports (deduplicated by fingerprint / secret identity)
-kingfisher view kingfisher.json gitleaks.json trufflehog.jsonl
+kingfisher view kingfisher.json kingfisher.sarif gitleaks.json trufflehog.jsonl
 
-# Or load every JSON/JSONL report in a directory
+# Or load every JSON/JSONL/SARIF report in a directory
 kingfisher view ./reports/
 ```
 
@@ -248,11 +253,13 @@ Add `--include-comments` and/or `--include-changelog` to expand the scan beyond 
 KF_CONFLUENCE_TOKEN="token" kingfisher scan confluence --url https://confluence.company.com --cql "label = secret"
 ```
 
-### 17: Scan Slack messages
+### 17: Scan Slack messages and files
 
 ```bash
 KF_SLACK_TOKEN="xoxp-..." kingfisher scan slack "api_key OR password"
 ```
+
+Slack file downloads require the `files:read` scope in addition to `search:read`.
 
 ### 18: Run with Docker (no install required)
 
@@ -367,20 +374,21 @@ A successful verification prints `Verified OK`. The attestation proves the artif
 
 ## Report Viewer (local and hosted)
 
-Kingfisher ships a browser-based **report viewer and triager** for three formats:
+Kingfisher ships a browser-based **report viewer and triager** for four report families:
 
-- Kingfisher JSON / JSONL (with full `access_map` blast-radius data when present)
+- Kingfisher JSON / JSONL / SARIF (with full `access_map` blast-radius data when present)
+- **SARIF** 2.1.0
 - **Gitleaks** JSON
 - **TruffleHog** JSON / JSONL (verified findings are surfaced as active credentials)
 
 There are two ways to use it:
 
 1. **Locally via the CLI** — `kingfisher view ./report.json` (bundled into every Kingfisher binary; no external services)
-2. **Hosted** — [https://mongodb.github.io/kingfisher/viewer/](https://mongodb.github.io/kingfisher/viewer/) — a static, client-side upload-based copy of the same viewer. Drag in Kingfisher, Gitleaks, or TruffleHog reports and triage in your browser; nothing is uploaded to a server.
+2. **Hosted** — [https://mongodb.github.io/kingfisher/viewer/](https://mongodb.github.io/kingfisher/viewer/) — a static, client-side upload-based copy of the same viewer. Drag in Kingfisher, SARIF, Gitleaks, or TruffleHog reports and triage in your browser; nothing is uploaded to a server.
 
 ### Why use a visual viewer / triager?
 
-Raw JSON from Kingfisher, Gitleaks, or TruffleHog is great for machines, but awful for humans making decisions on which findings are real and which need to be rotated first. The viewer lets a security engineer:
+Raw JSON and SARIF from Kingfisher, Gitleaks, or TruffleHog are great for machines, but awful for humans making decisions on which findings are real and which need to be rotated first. The viewer lets a security engineer:
 
 - **Skim hundreds of findings at a glance**, grouped by detector, file, repository, and validation status instead of one line per finding in a terminal.
 - **Triage across multiple tools in one place** — import a Gitleaks report plus a TruffleHog report plus a Kingfisher scan of the same repo and look at them side-by-side with dedup, instead of eyeballing three different JSON schemas.
@@ -390,7 +398,7 @@ Raw JSON from Kingfisher, Gitleaks, or TruffleHog is great for machines, but awf
 - **See blast radius** — for Kingfisher reports generated with `--access-map`, the viewer renders the identity, permissions, and resources a leaked credential can reach, so you can tell a dev token apart from a production admin key.
 - **Export triage decisions** — filter down to what matters and export a cleaned-up subset for a ticket, a rotation runbook, or an audit reviewer.
 
-Gitleaks and TruffleHog are both widely used open-source secret scanners with their own strengths; Kingfisher's viewer reads their standard JSON output so teams that already run them can pull those findings into the same triage workflow. Kingfisher is not affiliated with or endorsed by the Gitleaks project or Truffle Security Co.; TruffleHog and Gitleaks are trademarks of their respective owners.
+Gitleaks and TruffleHog are both widely used open-source secret scanners with their own strengths; Kingfisher's viewer reads their standard JSON output plus SARIF so teams that already run other tooling can pull those findings into the same triage workflow. Kingfisher is not affiliated with or endorsed by the Gitleaks project or Truffle Security Co.; TruffleHog and Gitleaks are trademarks of their respective owners.
 
 Note: when you pass `--view-report`, Kingfisher starts a web server on port `7890` (default) and opens it in your default browser. By default it binds to `127.0.0.1` for security. You'll see this near the end of the scan output, and **Kingfisher will keep running** until you stop it.
 
@@ -409,9 +417,31 @@ kingfisher scan /path/to/scan --access-map --view-report
 **Click to view video**
 [![Demo](docs/demos/findings-thumbnail.png)](https://github.com/user-attachments/assets/d33ee7a6-c60a-4e42-88e0-ac03cb429a46)
 
+## Alert Webhooks
+
+Kingfisher can post scan summaries, and optionally per-finding details, to the chat and webhook destinations your team already watches. Supported destinations include Slack, Microsoft Teams, Discord, Mattermost, Google Chat, and any HTTPS endpoint that accepts a JSON POST.
+
+Slack, Teams, Discord, and Google Chat are inferred automatically from the webhook host. Mattermost has no canonical host name, so it must be set explicitly with `--alert-format mattermost`.
+
+```bash
+# Slack incoming webhook (format inferred from the URL host)
+kingfisher scan ./repo --alert-webhook "$SLACK_SECURITY_WEBHOOK"
+
+# Discord webhook (format inferred from the URL host)
+kingfisher scan ./repo --alert-webhook "$DISCORD_SECURITY_WEBHOOK"
+
+# Generic JSON webhook for a SIEM or internal service
+kingfisher scan ./repo \
+  --alert-webhook "https://siem.example.com/ingest" \
+  --alert-format generic \
+  --alert-detail summary
+```
+
+For payload shapes, per-webhook overrides, and config-file examples, see [docs/ALERTS.md](/docs/ALERTS.md).
+
 # Detection Rules
 
-Kingfisher ships with [954 built-in rules](crates/kingfisher-rules/data/rules/) covering cloud keys, AI tokens, CI/CD secrets, database credentials, and SaaS API keys. Below is an overview — see the full list in [crates/kingfisher-rules/data/rules/](crates/kingfisher-rules/data/rules/):
+Kingfisher ships with [958 built-in rules](crates/kingfisher-rules/data/rules/) covering cloud keys, AI tokens, CI/CD secrets, database credentials, and SaaS API keys. Below is an overview — see the full list in [crates/kingfisher-rules/data/rules/](crates/kingfisher-rules/data/rules/):
 
 | Category | What we catch |
 |----------|---------------|
@@ -428,7 +458,7 @@ Kingfisher ships with [954 built-in rules](crates/kingfisher-rules/data/rules/) 
 
 ## Write Custom Rules
 
-Kingfisher ships with 954 built-in rules.
+Kingfisher ships with 958 built-in rules.
 
 However, you may want to add your own custom rules, or modify a detection to better suit your needs / environment.
 
@@ -498,19 +528,20 @@ kingfisher scan /path/to/code --access-map --view-report
 
 # View access-map reports locally
 kingfisher view kingfisher.json
+kingfisher view kingfisher.sarif
 
 # Import third-party reports for local triage
 kingfisher view trufflehog.json
 kingfisher view gitleaks.json
 
 # Combine multiple reports (deduplicated by fingerprint)
-kingfisher view report1.json report2.jsonl
+kingfisher view report1.json report2.jsonl report3.sarif
 
-# Load all reports from a directory (non-recursive, skips non-JSON/JSONL files)
+# Load all reports from a directory (non-recursive, skips non-JSON/JSONL/SARIF files)
 kingfisher view ./reports/
 ```
 
-The viewer can import Gitleaks JSON and TruffleHog JSON/JSONL in addition to native Kingfisher reports. Imported findings are normalized for browsing, filtering, and export, and imported TruffleHog/Gitleaks findings deduplicate by secret identity. Imported reports remain display-oriented: native `access_map`, validate/revoke commands, and blast-radius linking still require a Kingfisher scan.
+The viewer can import SARIF, Gitleaks JSON, and TruffleHog JSON/JSONL in addition to native Kingfisher reports. Imported findings are normalized for browsing, filtering, and export. Kingfisher-produced SARIF can preserve compatible validation status, command, fingerprint, and `access_map` properties when present; generic imported reports remain display-oriented and full blast-radius linking still requires a Kingfisher scan.
 
 > **Use the access map functionality only when you are authorized to inspect the target account, as Kingfisher will issue additional network requests to determine what access the secret grants**
 
@@ -698,7 +729,7 @@ KF_JIRA_TOKEN="token" kingfisher scan jira --url https://jira.company.com \
 KF_CONFLUENCE_TOKEN="token" kingfisher scan confluence --url https://confluence.company.com \
   --cql "label = secret"
 
-# Scan Slack messages
+# Scan Slack messages and files
 KF_SLACK_TOKEN="xoxp-..." kingfisher scan slack "from:username has:link"
 
 # Scan Microsoft Teams messages
@@ -802,6 +833,7 @@ kingfisher scan /tmp/repo --branch feature-1 \
 |----------|-------------|
 | [INSTALLATION.md](docs/INSTALLATION.md) | Complete installation guide including pre-commit hooks setup for git, pre-commit framework, and Husky |
 | [INTEGRATIONS.md](docs/INTEGRATIONS.md) | Platform-specific scanning guide (GitHub, GitLab, AWS S3, Docker, Jira, Confluence, Slack, etc.) |
+| [ALERTS.md](docs/ALERTS.md) | Alert webhooks for Slack, Teams, Discord, Mattermost, Google Chat, and generic HTTPS endpoints |
 | [ACCESS_MAP.md](docs/ACCESS_MAP.md) | Access map: supported tokens and credential formats (43 providers including AWS, GCP, Azure, Alibaba Cloud, Stripe, Jira, monday.com, Asana, Pinecone, and more) |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | High-level Mermaid architecture diagram of the CLI, scanner pipeline, validation, access map, and outputs |
 | [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Deployment models for self-serve CLI use, CI/pre-commit enforcement, centralized scanning, and embedded library integrations |

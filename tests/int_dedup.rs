@@ -66,6 +66,7 @@ rules:
         rules: RuleSpecifierArgs {
             rules_path: vec![rules_dir.clone()],
             rule: vec!["all".into()],
+            exclude_rule: Vec::new(),
             load_builtins: false,
         },
         rule_cache: RuleCacheArgs::default(),
@@ -82,6 +83,8 @@ rules:
             all_github_organizations: false,
             github_api_url: Url::parse("https://api.github.com/").unwrap(),
             github_repo_type: GitHubRepoType::Source,
+            github_event_user: Vec::new(),
+            github_event_lookback_hours: 24,
             // new GitLab defaults
             gitlab_user: Vec::new(),
             gitlab_group: Vec::new(),
@@ -96,6 +99,7 @@ rules:
             huggingface_model: Vec::new(),
             huggingface_dataset: Vec::new(),
             huggingface_space: Vec::new(),
+            huggingface_bucket: Vec::new(),
             huggingface_exclude: Vec::new(),
 
             gitea_user: Vec::new(),

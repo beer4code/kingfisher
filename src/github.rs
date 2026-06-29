@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, BTreeSet, HashSet},
     env, fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -7,6 +7,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::StatusCode;
 use reqwest::header::HeaderMap;
@@ -32,6 +33,53 @@ struct GitHubRepo {
 #[derive(Deserialize)]
 struct GitHubOrg {
     login: String,
+}
+
+#[derive(Deserialize)]
+struct GitHubEvent {
+    #[serde(rename = "type")]
+    event_type: String,
+    repo: GitHubEventRepo,
+    payload: Value,
+    created_at: String,
+}
+
+#[derive(Deserialize)]
+struct GitHubEventRepo {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct GitHubPushPayload {
+    #[serde(default)]
+    commits: Vec<GitHubPushCommit>,
+    #[serde(default)]
+    head: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GitHubPushCommit {
+    sha: String,
+}
+
+#[derive(Deserialize)]
+struct GitHubCreatePayload {
+    ref_type: Option<String>,
+    #[serde(rename = "ref")]
+    ref_name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct GitHubEventScanTarget {
+    pub repo_url: GitUrl,
+    pub selector: GitHubEventScanSelector,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum GitHubEventScanSelector {
+    Repository,
+    Branch(String),
+    Commit(String),
 }
 
 #[derive(Debug)]
@@ -127,6 +175,121 @@ fn build_exclude_matcher(exclude_repos: &[String]) -> git_host::ExcludeMatcher {
 
 fn should_exclude_repo(clone_url: &str, excludes: &git_host::ExcludeMatcher) -> bool {
     git_host::should_exclude_repo(clone_url, excludes, parse_repo_name_from_url)
+}
+
+fn clean_ref_name(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.chars().any(char::is_control) {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
+fn clean_commit_sha(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if (7..=64).contains(&trimmed.len()) && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+        Some(trimmed.to_string())
+    } else {
+        None
+    }
+}
+
+fn clone_host_for_api(api_url: &Url) -> Option<String> {
+    let host = match api_url.host_str()?.to_ascii_lowercase().as_str() {
+        "api.github.com" => "github.com".to_string(),
+        other => other.to_string(),
+    };
+    Some(match api_url.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host,
+    })
+}
+
+fn repo_clone_url_from_event(api_base: &Url, repo_name: &str) -> Option<GitUrl> {
+    let repo = parse_repo_name_from_path(repo_name)?;
+    let host = clone_host_for_api(api_base)?;
+    GitUrl::from_str(&format!("{}://{host}/{repo}.git", api_base.scheme())).ok()
+}
+
+fn event_created_at(event: &GitHubEvent) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(&event.created_at).ok().map(|dt| dt.with_timezone(&Utc))
+}
+
+fn targets_from_event(api_base: &Url, event: GitHubEvent) -> Vec<GitHubEventScanTarget> {
+    let Some(repo_url) = repo_clone_url_from_event(api_base, &event.repo.name) else {
+        return Vec::new();
+    };
+
+    let mut selectors = Vec::new();
+    match event.event_type.as_str() {
+        "PushEvent" => {
+            if let Ok(payload) = serde_json::from_value::<GitHubPushPayload>(event.payload.clone())
+            {
+                for commit in payload.commits {
+                    if let Some(sha) = clean_commit_sha(&commit.sha) {
+                        selectors.push(GitHubEventScanSelector::Commit(sha));
+                    }
+                }
+                if selectors.is_empty()
+                    && let Some(head) = payload.head.as_deref().and_then(clean_commit_sha)
+                {
+                    selectors.push(GitHubEventScanSelector::Commit(head));
+                }
+            }
+        }
+        "CreateEvent" => {
+            if let Ok(payload) =
+                serde_json::from_value::<GitHubCreatePayload>(event.payload.clone())
+            {
+                match payload.ref_type.as_deref() {
+                    Some("repository") => selectors.push(GitHubEventScanSelector::Repository),
+                    Some("branch") => {
+                        if let Some(ref_name) = payload.ref_name.as_deref().and_then(clean_ref_name)
+                        {
+                            selectors.push(GitHubEventScanSelector::Branch(ref_name));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+
+    selectors
+        .into_iter()
+        .map(|selector| GitHubEventScanTarget { repo_url: repo_url.clone(), selector })
+        .collect()
+}
+
+fn collapse_redundant_event_targets(
+    targets: Vec<GitHubEventScanTarget>,
+) -> Vec<GitHubEventScanTarget> {
+    let mut by_repo: BTreeMap<GitUrl, Vec<GitHubEventScanSelector>> = BTreeMap::new();
+    for target in targets {
+        by_repo.entry(target.repo_url).or_default().push(target.selector);
+    }
+
+    let mut collapsed = Vec::new();
+    for (repo_url, mut selectors) in by_repo {
+        selectors.sort();
+        selectors.dedup();
+        if selectors.iter().any(|selector| matches!(selector, GitHubEventScanSelector::Repository))
+        {
+            collapsed.push(GitHubEventScanTarget {
+                repo_url,
+                selector: GitHubEventScanSelector::Repository,
+            });
+        } else {
+            collapsed.extend(
+                selectors
+                    .into_iter()
+                    .map(|selector| GitHubEventScanTarget { repo_url: repo_url.clone(), selector }),
+            );
+        }
+    }
+    collapsed.sort();
+    collapsed
 }
 fn create_github_client(ignore_certs: bool) -> Result<Arc<reqwest::Client>> {
     let mut client_builder = reqwest::Client::builder();
@@ -420,6 +583,93 @@ fn build_contributor_progress_bar(
         ProgressBar::hidden()
     }
 }
+
+pub async fn enumerate_public_event_targets(
+    users: &[String],
+    lookback_hours: u64,
+    github_url: Url,
+    ignore_certs: bool,
+    exclude_repos: &[String],
+    repo_clone_limit: Option<usize>,
+    mut progress: Option<&mut ProgressBar>,
+) -> Result<Vec<GitHubEventScanTarget>> {
+    if users.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let client = create_github_client(ignore_certs)?;
+    let api_base = normalize_api_base(&github_url);
+    let token = github_token();
+    let exclude_set = build_exclude_matcher(exclude_repos);
+    let cutoff = Utc::now() - ChronoDuration::hours(lookback_hours.min(i64::MAX as u64) as i64);
+    let mut targets = Vec::new();
+
+    for username in users {
+        let mut next_url = {
+            let mut url = api_base
+                .join(&format!("users/{username}/events/public"))
+                .context("Failed to build GitHub public events URL")?;
+            url.query_pairs_mut().append_pair("per_page", "100");
+            Some(url)
+        };
+
+        while let Some(url) = next_url {
+            let resp = ensure_github_success(
+                github_get(&client, url, token.as_deref()).send().await?,
+                "listing public user events",
+            )
+            .await?;
+            next_url = github_next_link(resp.headers());
+            let events: Vec<GitHubEvent> = resp.json().await?;
+            if events.is_empty() {
+                break;
+            }
+
+            let mut reached_cutoff = false;
+            for event in events {
+                if let Some(created_at) = event_created_at(&event)
+                    && created_at < cutoff
+                {
+                    reached_cutoff = true;
+                    break;
+                }
+
+                for target in targets_from_event(&api_base, event) {
+                    if should_exclude_repo(target.repo_url.as_str(), &exclude_set) {
+                        continue;
+                    }
+                    targets.push(target);
+                }
+            }
+
+            if reached_cutoff {
+                break;
+            }
+        }
+
+        if let Some(progress) = progress.as_mut() {
+            progress.inc(1);
+        }
+    }
+
+    let mut targets = collapse_redundant_event_targets(targets);
+    if let Some(limit) = repo_clone_limit {
+        let mut seen_repos = BTreeSet::new();
+        targets.retain(|target| {
+            if seen_repos.contains(&target.repo_url) {
+                return true;
+            }
+            if seen_repos.len() >= limit {
+                return false;
+            }
+            seen_repos.insert(target.repo_url.clone());
+            true
+        });
+    }
+
+    Ok(targets)
+}
+
 pub async fn enumerate_repo_urls(
     repo_specifiers: &RepoSpecifiers,
     github_url: url::Url,
@@ -701,6 +951,16 @@ pub async fn fetch_repo_items(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    fn public_event(event_type: &str, payload: Value) -> GitHubEvent {
+        GitHubEvent {
+            event_type: event_type.to_string(),
+            repo: GitHubEventRepo { name: "Owner/Repo".to_string() },
+            payload,
+            created_at: "2026-06-25T12:00:00Z".to_string(),
+        }
+    }
 
     #[test]
     fn parse_excluded_repo_variants() {
@@ -768,5 +1028,78 @@ mod tests {
         );
 
         assert!(github_next_link(&headers).is_none());
+    }
+
+    #[test]
+    fn public_push_event_targets_each_commit() {
+        let api_base = Url::parse("https://api.github.com/").unwrap();
+        let first = "0123456789abcdef0123456789abcdef01234567";
+        let second = "89abcdef0123456789abcdef0123456789abcdef";
+        let targets = targets_from_event(
+            &api_base,
+            public_event(
+                "PushEvent",
+                json!({
+                    "commits": [
+                        { "sha": first },
+                        { "sha": second }
+                    ],
+                    "head": second
+                }),
+            ),
+        );
+
+        assert_eq!(targets.len(), 2);
+        assert_eq!(targets[0].repo_url.as_str(), "https://github.com/owner/repo.git");
+        assert_eq!(targets[0].selector, GitHubEventScanSelector::Commit(first.to_string()));
+        assert_eq!(targets[1].selector, GitHubEventScanSelector::Commit(second.to_string()));
+    }
+
+    #[test]
+    fn public_create_event_targets_branch_or_repository() {
+        let api_base = Url::parse("https://api.github.com/").unwrap();
+        let branch_targets = targets_from_event(
+            &api_base,
+            public_event(
+                "CreateEvent",
+                json!({
+                    "ref_type": "branch",
+                    "ref": "feature/secrets"
+                }),
+            ),
+        );
+        let repo_targets = targets_from_event(
+            &api_base,
+            public_event("CreateEvent", json!({ "ref_type": "repository", "ref": null })),
+        );
+
+        assert_eq!(branch_targets.len(), 1);
+        assert_eq!(
+            branch_targets[0].selector,
+            GitHubEventScanSelector::Branch("feature/secrets".to_string())
+        );
+        assert_eq!(repo_targets.len(), 1);
+        assert_eq!(repo_targets[0].selector, GitHubEventScanSelector::Repository);
+    }
+
+    #[test]
+    fn repository_event_target_supersedes_narrower_targets() {
+        let repo_url = GitUrl::from_str("https://github.com/owner/repo.git").unwrap();
+        let targets = collapse_redundant_event_targets(vec![
+            GitHubEventScanTarget {
+                repo_url: repo_url.clone(),
+                selector: GitHubEventScanSelector::Commit(
+                    "0123456789abcdef0123456789abcdef01234567".to_string(),
+                ),
+            },
+            GitHubEventScanTarget {
+                repo_url: repo_url.clone(),
+                selector: GitHubEventScanSelector::Branch("main".to_string()),
+            },
+            GitHubEventScanTarget { repo_url, selector: GitHubEventScanSelector::Repository },
+        ]);
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].selector, GitHubEventScanSelector::Repository);
     }
 }

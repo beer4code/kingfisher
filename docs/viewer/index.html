@@ -653,6 +653,201 @@
       border-color: var(--brand);
     }
 
+    .am-view-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 3px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface);
+    }
+
+    .am-view-switch__button {
+      border: 0;
+      border-radius: 7px;
+      padding: 7px 11px;
+      background: transparent;
+      color: var(--text-muted);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .am-view-switch__button.active {
+      color: var(--text-main);
+      background: var(--surface-strong);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .am-graph {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 300px;
+      min-height: 440px;
+      margin-bottom: 18px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--surface-muted);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .am-graph__canvas {
+      min-width: 0;
+      overflow: auto;
+      position: relative;
+      background:
+        radial-gradient(circle at 18% 14%, rgba(0, 237, 100, 0.06), transparent 28%),
+        linear-gradient(90deg, transparent 49.8%, rgba(148, 163, 184, 0.07) 50%, transparent 50.2%),
+        var(--surface-muted);
+    }
+
+    .am-graph__canvas svg {
+      display: block;
+      width: 100%;
+      min-width: 820px;
+      height: auto;
+    }
+
+    .am-graph__inspector {
+      border-left: 1px solid var(--border);
+      padding: 18px;
+      background: var(--surface);
+      overflow: auto;
+    }
+
+    .am-graph__eyebrow {
+      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 7px;
+    }
+
+    .am-graph__title {
+      color: var(--text-main);
+      font-size: 15px;
+      font-weight: 750;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .am-graph__subtitle {
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 1.5;
+      margin-top: 6px;
+      overflow-wrap: anywhere;
+    }
+
+    .am-graph__section {
+      padding-top: 15px;
+      margin-top: 15px;
+      border-top: 1px solid var(--border);
+    }
+
+    .am-graph__permission-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-top: 8px;
+    }
+
+    .am-graph__hint {
+      color: var(--text-muted);
+      font-size: 11px;
+      line-height: 1.5;
+      margin-top: 12px;
+    }
+
+    .am-graph__notice {
+      position: sticky;
+      left: 12px;
+      bottom: 12px;
+      width: max-content;
+      max-width: calc(100% - 24px);
+      margin: -42px 12px 12px;
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--text-muted);
+      font-size: 11px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .am-graph-node {
+      cursor: pointer;
+      outline: none;
+    }
+
+    .am-graph-node rect {
+      fill: var(--surface);
+      stroke: var(--border-strong);
+      stroke-width: 1;
+      transition: stroke 0.15s, fill 0.15s;
+    }
+
+    .am-graph-node:hover rect,
+    .am-graph-node:focus rect,
+    .am-graph-node.selected rect {
+      stroke: var(--brand);
+      stroke-width: 2;
+      fill: var(--surface-strong);
+    }
+
+    .am-graph-node text {
+      fill: var(--text-main);
+      pointer-events: none;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .am-graph-node .am-graph-node__meta {
+      fill: var(--text-muted);
+      font-size: 10px;
+    }
+
+    .am-graph-node--admin rect { stroke: #fb7185; }
+    .am-graph-node--privesc rect { stroke: #fb923c; }
+    .am-graph-node--risky rect { stroke: #facc15; }
+
+    .am-graph-edge {
+      fill: none;
+      stroke: rgba(148, 163, 184, 0.38);
+      stroke-width: 1.35;
+    }
+
+    .am-graph-edge--admin { stroke: rgba(251, 113, 133, 0.72); }
+    .am-graph-edge--privesc { stroke: rgba(251, 146, 60, 0.68); }
+    .am-graph-edge--risky { stroke: rgba(250, 204, 21, 0.6); }
+
+    .am-graph-provider-label {
+      fill: var(--text-muted);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+    }
+
+    .am-graph-column-label {
+      fill: var(--text-muted);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+    }
+
+    @media (max-width: 900px) {
+      .am-graph {
+        grid-template-columns: 1fr;
+      }
+      .am-graph__inspector {
+        border-left: 0;
+        border-top: 1px solid var(--border);
+        max-height: 300px;
+      }
+    }
+
     .am-stats {
       display: flex;
       gap: 16px;
@@ -2057,7 +2252,7 @@
       <div class="panel__header">
         <div class="panel__title">
           <h3>Load Report</h3>
-          <p>Analyze Kingfisher JSON / JSONL output, plus Gitleaks and TruffleHog JSON reports</p>
+          <p>Analyze Kingfisher JSON / JSONL / SARIF output, plus Gitleaks and TruffleHog JSON reports</p>
         </div>
       </div>
       <div class="upload-shell">
@@ -2067,9 +2262,9 @@
           <div class="upload-sub">Drop files anywhere in this card, or click to choose them from disk.</div>
           <div class="upload-action-row">
             <span class="upload-primary">Choose Reports</span>
-            <span class="upload-action-hint">JSON and JSONL only</span>
+            <span class="upload-action-hint">JSON, JSONL, and SARIF</span>
           </div>
-          <input type="file" id="file-input" hidden accept=".json,.jsonl" multiple>
+          <input type="file" id="file-input" hidden accept=".json,.jsonl,.sarif" multiple>
           <div class="upload-options" style="margin-top:14px; display:flex; justify-content:center; font-size:12px; color:var(--text-muted);">
             <label id="dedup-toggle-label" style="display:inline-flex; align-items:center; gap:6px; cursor:pointer;">
               <input type="checkbox" id="dedup-toggle" checked>
@@ -2080,7 +2275,7 @@
         <div class="upload-help-grid">
           <div class="upload-help-card">
             <div class="upload-help-label">Formats</div>
-            <div class="upload-help-text"><strong>Kingfisher</strong> JSON/JSONL, <strong>Gitleaks</strong> OSS JSON, and <strong>TruffleHog</strong> OSS JSON/JSONL.</div>
+            <div class="upload-help-text"><strong>Kingfisher</strong> JSON/JSONL/SARIF, <strong>SARIF</strong> 2.1.0, <strong>Gitleaks</strong> OSS JSON, and <strong>TruffleHog</strong> OSS JSON/JSONL.</div>
           </div>
           <div class="upload-help-card">
             <div class="upload-help-label">Merge More</div>
@@ -2088,7 +2283,7 @@
           </div>
           <div class="upload-help-card">
             <div class="upload-help-label">Deduplication</div>
-            <div class="upload-help-text"><strong>Kingfisher</strong> reports are already deduplicated. For imported <strong>Gitleaks</strong> and <strong>TruffleHog</strong> reports, the viewer attempts deduplication (by default) by finding fingerprint: native fingerprints when present, otherwise a synthetic fingerprint built from the tool, detector, and secret identity, with path/line/snippet fallback when needed.</div>
+            <div class="upload-help-text"><strong>Kingfisher</strong> reports are already deduplicated. For imported <strong>SARIF</strong>, <strong>Gitleaks</strong>, and <strong>TruffleHog</strong> reports, the viewer attempts deduplication (by default) by finding fingerprint: native fingerprints when present, otherwise a synthetic fingerprint built from the tool, detector, and secret identity, with path/line/snippet fallback when needed.</div>
           </div>
           <div class="upload-help-card">
             <div class="upload-help-label">Privacy</div>
@@ -2096,7 +2291,7 @@
           </div>
           <div class="upload-help-card">
             <div class="upload-help-label">Attribution</div>
-            <div class="upload-help-text">Reads JSON output from the open-source TruffleHog and Gitleaks CLIs. Kingfisher is not affiliated with or endorsed by Truffle Security Co. or the Gitleaks project. TruffleHog and Gitleaks are trademarks of their respective owners.</div>
+            <div class="upload-help-text">Reads SARIF plus JSON output from the open-source TruffleHog and Gitleaks CLIs. Kingfisher is not affiliated with or endorsed by Truffle Security Co. or the Gitleaks project. TruffleHog and Gitleaks are trademarks of their respective owners.</div>
           </div>
         </div>
         <div id="error-msg" class="hidden" style="margin-top:16px; padding:10px 12px; background:#fef2f2; border:1px solid #fecaca; border-radius:6px; color:#b91c1c; font-size:13px;"></div>
@@ -2263,6 +2458,10 @@
                   <div class="metric__label">Gitleaks duplicates removed</div>
                   <div class="metric__value" id="dedup-count-gitleaks">0</div>
                 </div>
+                <div class="metric" id="dedup-card-sarif">
+                  <div class="metric__label">SARIF duplicates removed</div>
+                  <div class="metric__value" id="dedup-count-sarif">0</div>
+                </div>
               </div>
             </section>
 
@@ -2353,6 +2552,14 @@
                     <input type="checkbox" id="am-critical-checkbox">
                     <span>Critical only</span>
                   </label>
+                  <div class="am-view-switch" aria-label="Access map view">
+                    <button class="am-view-switch__button active" id="am-view-map" type="button" aria-pressed="true">Map</button>
+                    <button class="am-view-switch__button" id="am-view-details" type="button" aria-pressed="false">Details</button>
+                  </div>
+                </div>
+                <div id="am-graph" class="am-graph">
+                  <div id="am-graph-canvas" class="am-graph__canvas"></div>
+                  <aside id="am-graph-inspector" class="am-graph__inspector" aria-live="polite"></aside>
                 </div>
                 <div id="am-card-list" class="am-card-list">
                   <div style="color:var(--text-muted); font-size:13px; text-align:center; padding:32px 0;">
@@ -2377,6 +2584,7 @@
                   <select id="source-filter" class="rows-select">
                     <option value="all" selected>All sources</option>
                     <option value="kingfisher">Kingfisher</option>
+                    <option value="sarif">SARIF</option>
                     <option value="gitleaks">Gitleaks</option>
                     <option value="trufflehog">TruffleHog</option>
                   </select>
@@ -2586,7 +2794,7 @@
     let rawData = null;
     let findings = [];
     let accessMap = [];
-    let duplicatesRemoved = { kingfisher: 0, trufflehog: 0, gitleaks: 0, total: 0 };
+    let duplicatesRemoved = { kingfisher: 0, sarif: 0, trufflehog: 0, gitleaks: 0, total: 0 };
     let filteredAccessMapView = [];
     let currentFilter = "";
     let validationFilter = "all";
@@ -2602,6 +2810,9 @@
     let autoCollapsedAccessMap = false;
     let currentDetailFinding = null;
     let scanMetadata = {};
+    let accessMapViewMode = "map";
+    let selectedAccessMapNode = null;
+    let visibleAccessMapView = [];
 
     const dropZone = document.getElementById("drop-zone");
     const fileInput = document.getElementById("file-input");
@@ -2635,6 +2846,11 @@
     const treeSearch = document.getElementById("tree-search");
     const amContainer = document.getElementById("am-container");
     const amToggle = document.getElementById("am-toggle"); // may be null now
+    const amGraph = document.getElementById("am-graph");
+    const amGraphCanvas = document.getElementById("am-graph-canvas");
+    const amGraphInspector = document.getElementById("am-graph-inspector");
+    const amViewMap = document.getElementById("am-view-map");
+    const amViewDetails = document.getElementById("am-view-details");
     const copyAccessMapButton = document.getElementById("copy-access-map");
     const amEmptyNotice = document.getElementById("am-empty-notice");
     const themeToggle = document.getElementById("theme-toggle");
@@ -2827,6 +3043,28 @@
     treeSearch.addEventListener("input", (e) => {
       renderAccessMapTree(e.target.value || "");
     });
+
+    function setAccessMapViewMode(mode) {
+      accessMapViewMode = mode === "details" ? "details" : "map";
+      if (amGraph) amGraph.classList.toggle("hidden", accessMapViewMode !== "map");
+      const cardList = document.getElementById("am-card-list");
+      if (cardList) cardList.classList.toggle("hidden", accessMapViewMode !== "details");
+      if (amViewMap) {
+        amViewMap.classList.toggle("active", accessMapViewMode === "map");
+        amViewMap.setAttribute("aria-pressed", accessMapViewMode === "map" ? "true" : "false");
+      }
+      if (amViewDetails) {
+        amViewDetails.classList.toggle("active", accessMapViewMode === "details");
+        amViewDetails.setAttribute("aria-pressed", accessMapViewMode === "details" ? "true" : "false");
+      }
+    }
+
+    if (amViewMap) {
+      amViewMap.addEventListener("click", () => setAccessMapViewMode("map"));
+    }
+    if (amViewDetails) {
+      amViewDetails.addEventListener("click", () => setAccessMapViewMode("details"));
+    }
 
     const criticalCheckbox = document.getElementById("am-critical-checkbox");
     const criticalToggleWrap = document.getElementById("am-critical-toggle");
@@ -3137,6 +3375,10 @@
         const item = stack.shift();
         if (!item || typeof item !== "object") continue;
 
+        if (isSarifPayload(item) || isSarifRun(item)) {
+          return "sarif";
+        }
+
         if (Array.isArray(item.results)) {
           stack.unshift(...item.results);
           continue;
@@ -3259,6 +3501,309 @@
         successful_validations: counts.active || 0,
         failed_validations: counts.inactive || 0,
         skipped_validations: counts.not_attempted || 0,
+      };
+    }
+
+    function isSarifPayload(item) {
+      if (!item || typeof item !== "object") return false;
+      if (!Array.isArray(item.runs)) return false;
+      const schema = String(item["$schema"] || item.schema || "").toLowerCase();
+      const version = String(item.version || "");
+      return schema.includes("sarif") || version === "2.1.0" || item.runs.some(isSarifRun);
+    }
+
+    function isSarifRun(item) {
+      return Boolean(
+        item &&
+        typeof item === "object" &&
+        item.tool &&
+        typeof item.tool === "object" &&
+        Array.isArray(item.results)
+      );
+    }
+
+    function sarifMessageText(value) {
+      if (value === undefined || value === null) return "";
+      if (typeof value === "string") return value;
+      if (typeof value !== "object") return String(value);
+      return String(firstNonEmpty(value.text, value.markdown) || "");
+    }
+
+    function sarifToolDriver(run) {
+      return run && run.tool && run.tool.driver && typeof run.tool.driver === "object"
+        ? run.tool.driver
+        : {};
+    }
+
+    function sarifToolName(run) {
+      const driver = sarifToolDriver(run);
+      return String(firstNonEmpty(driver.name, driver.fullName, "SARIF") || "SARIF");
+    }
+
+    function isKingfisherSarifRun(run) {
+      const driver = sarifToolDriver(run);
+      const haystack = [
+        driver.name,
+        driver.fullName,
+        driver.informationUri,
+        driver.downloadUri,
+      ].map((value) => String(value || "").toLowerCase()).join(" ");
+      return haystack.includes("kingfisher");
+    }
+
+    function sarifSourceDisplayName(run) {
+      const toolName = sarifToolName(run);
+      if (isKingfisherSarifRun(run)) return "Kingfisher SARIF";
+      return toolName && toolName.toLowerCase() !== "sarif" ? `${toolName} SARIF` : "SARIF";
+    }
+
+    function sarifLevelToConfidence(level) {
+      const normalized = String(level || "").toLowerCase();
+      if (normalized === "error") return "high";
+      if (normalized === "note" || normalized === "none") return "low";
+      return "medium";
+    }
+
+    function buildSarifRuleMaps(run) {
+      const driver = sarifToolDriver(run);
+      const rules = Array.isArray(driver.rules) ? driver.rules : [];
+      const byIndex = new Map();
+      const byId = new Map();
+      rules.forEach((rule, index) => {
+        if (!rule || typeof rule !== "object") return;
+        byIndex.set(index, rule);
+        const id = String(rule.id || "");
+        if (id) byId.set(id, rule);
+      });
+      return { byIndex, byId };
+    }
+
+    function sarifResultRule(result, ruleMaps) {
+      const ruleIndex = toNumberOrNull(firstNonEmpty(
+        result.ruleIndex,
+        result.rule && result.rule.index
+      ));
+      const ruleId = String(firstNonEmpty(
+        result.ruleId,
+        result.rule && result.rule.id,
+        ""
+      ) || "");
+      return (
+        (ruleIndex !== null ? ruleMaps.byIndex.get(ruleIndex) : null) ||
+        (ruleId ? ruleMaps.byId.get(ruleId) : null) ||
+        null
+      );
+    }
+
+    function sarifProperties(result, location, physicalLocation) {
+      return Object.assign(
+        {},
+        result && result.properties && typeof result.properties === "object" ? result.properties : {},
+        physicalLocation && physicalLocation.properties && typeof physicalLocation.properties === "object" ? physicalLocation.properties : {},
+        location && location.properties && typeof location.properties === "object" ? location.properties : {},
+      );
+    }
+
+    function sarifGitMetadata(run, props, path, line) {
+      const explicit = firstNonEmpty(props.git_metadata, props.gitMetadata);
+      if (explicit && typeof explicit === "object") return explicit;
+
+      const provenance = Array.isArray(run.versionControlProvenance)
+        ? run.versionControlProvenance[0]
+        : null;
+      if (!provenance || typeof provenance !== "object") return null;
+
+      const repoUrl = normalizeRepositoryWebUrl(firstNonEmpty(
+        provenance.repositoryUri,
+        provenance.repository_url,
+        provenance.repositoryUrl
+      ));
+      const commitId = firstNonEmpty(provenance.revisionId, provenance.revision_id, provenance.revision);
+      const fileUrl = buildGitFileUrl(repoUrl, commitId, path, line);
+      return buildGitMetadata(commitId, "", fileUrl, repoUrl);
+    }
+
+    function sarifFingerprint(result, props, sourceTool, ruleId, path, line, columnStart, snippet) {
+      const partial = result && result.partialFingerprints && typeof result.partialFingerprints === "object"
+        ? result.partialFingerprints
+        : {};
+      const full = result && result.fingerprints && typeof result.fingerprints === "object"
+        ? result.fingerprints
+        : {};
+      return String(
+        firstNonEmpty(
+          partial.fingerprint,
+          partial.primaryLocationLineHash,
+          full.fingerprint,
+          props.fingerprint,
+          props.finding_fingerprint,
+          props.findingFingerprint
+        ) ||
+        buildSyntheticFingerprint("sarif", [sourceTool, ruleId, path, line, columnStart, snippet])
+      );
+    }
+
+    function normalizeSarifResult(result, run, ruleMaps) {
+      if (!result || typeof result !== "object") return null;
+      const locations = Array.isArray(result.locations) ? result.locations : [];
+      const location = locations.find((loc) => loc && loc.physicalLocation) || locations[0] || {};
+      const physical = location.physicalLocation || {};
+      const artifact = physical.artifactLocation || {};
+      const region = physical.region || {};
+      const props = sarifProperties(result, location, physical);
+      const descriptor = sarifResultRule(result, ruleMaps);
+      const ruleId = String(firstNonEmpty(
+        result.ruleId,
+        result.rule && result.rule.id,
+        descriptor && descriptor.id,
+        "sarif.unknown"
+      ) || "sarif.unknown");
+      const ruleName = String(firstNonEmpty(
+        descriptor && descriptor.name,
+        descriptor && descriptor.shortDescription && sarifMessageText(descriptor.shortDescription),
+        sarifMessageText(result.message),
+        ruleId
+      ) || ruleId);
+      const ruleDescription = String(firstNonEmpty(
+        descriptor && descriptor.fullDescription && sarifMessageText(descriptor.fullDescription),
+        descriptor && descriptor.help && sarifMessageText(descriptor.help),
+        ruleName
+      ) || ruleName);
+      const path = String(firstNonEmpty(artifact.uri, artifact.uriBaseId, "") || "");
+      const line = toNumberOrNull(firstNonEmpty(region.startLine, region.start_line));
+      const columnStart = toNumberOrNull(firstNonEmpty(region.startColumn, region.start_column));
+      const columnEnd = toNumberOrNull(firstNonEmpty(region.endColumn, region.end_column));
+      const snippet = String(firstNonEmpty(
+        region.snippet && sarifMessageText(region.snippet),
+        sarifMessageText(result.message),
+        ruleDescription
+      ) || "");
+      const sourceTool = sarifSourceDisplayName(run);
+      const isKingfisherSarif = isKingfisherSarifRun(run);
+      const validationStatus = String(firstNonEmpty(
+        props.validation_status,
+        props.validationStatus,
+        props.validation && props.validation.status,
+        "Not Attempted"
+      ) || "Not Attempted");
+      const validationResponse = String(firstNonEmpty(
+        props.validation_response,
+        props.validationResponse,
+        props.validation && props.validation.response,
+        ""
+      ) || "");
+      const entropy = firstNonEmpty(props.entropy, "");
+      const fingerprint = sarifFingerprint(
+        result,
+        props,
+        sourceTool,
+        ruleId,
+        path,
+        line,
+        columnStart,
+        snippet,
+      );
+      const gitMetadata = sarifGitMetadata(run, props, path, line);
+      const validateCommand = firstNonEmpty(props.validate_command, props.validateCommand, "");
+      const revokeCommand = firstNonEmpty(props.revoke_command, props.revokeCommand, "");
+
+      return {
+        rule: {
+          id: "imported.sarif." + slugifyIdentifier(`${sourceTool}.${ruleId}`),
+          name: ruleName,
+        },
+        finding: {
+          snippet,
+          fingerprint,
+          confidence: sarifLevelToConfidence(result.level),
+          entropy: entropy !== "" ? String(entropy) : "",
+          validation: {
+            status: validationStatus,
+            response: validationResponse,
+          },
+          language: "Imported",
+          line,
+          column_start: columnStart,
+          column_end: columnEnd,
+          path,
+          git_metadata: gitMetadata,
+          validate_command: validateCommand ? String(validateCommand) : "",
+          revoke_command: revokeCommand ? String(revokeCommand) : "",
+          viewer_import: {
+            source_tool: sourceTool,
+            source_format: "SARIF",
+            source_rule_id: ruleId,
+            source_rule_name: ruleName,
+            source_rule_description: ruleDescription,
+            kingfisher_native: isKingfisherSarif,
+          },
+        },
+      };
+    }
+
+    function normalizeSarifPayload(payload) {
+      const documents = Array.isArray(payload) ? payload : [payload];
+      const normalizedFindings = [];
+      const accessMap = [];
+      const tools = new Set();
+      let target = "";
+      let version = "";
+      let hasKingfisherSarif = false;
+      let hasCommands = false;
+
+      documents.forEach((document) => {
+        const runs = isSarifPayload(document)
+          ? document.runs
+          : (isSarifRun(document) ? [document] : []);
+        runs.forEach((run) => {
+          if (!isSarifRun(run)) return;
+          const sourceTool = sarifSourceDisplayName(run);
+          tools.add(sourceTool);
+          hasKingfisherSarif = hasKingfisherSarif || isKingfisherSarifRun(run);
+          const driver = sarifToolDriver(run);
+          if (!version) version = String(firstNonEmpty(driver.semanticVersion, driver.version, "") || "");
+          const runProps = run.properties && typeof run.properties === "object" ? run.properties : {};
+          const runAccessMap = firstNonEmpty(runProps.access_map, runProps.accessMap);
+          if (Array.isArray(runAccessMap)) accessMap.push(...runAccessMap);
+
+          const ruleMaps = buildSarifRuleMaps(run);
+          (run.results || []).forEach((result) => {
+            const normalized = normalizeSarifResult(result, run, ruleMaps);
+            if (!normalized) return;
+            if (!target && normalized.finding.path) target = normalized.finding.path;
+            hasCommands = hasCommands || Boolean(normalized.finding.validate_command || normalized.finding.revoke_command);
+            normalizedFindings.push(normalized);
+          });
+        });
+      });
+
+      const toolList = Array.from(tools);
+      const notes = [
+        "Imported from SARIF. Locations and rule metadata are normalized for triage; validation, command, and access-map details appear only when the SARIF producer includes compatible Kingfisher properties.",
+      ];
+
+      return {
+        f: normalizedFindings,
+        am: accessMap,
+        rd: {
+          findings: normalizedFindings,
+          access_map: accessMap,
+          metadata: {
+            generated_at: new Date().toISOString(),
+            scan_timestamp: new Date().toISOString(),
+            target,
+            kingfisher_version: hasKingfisherSarif ? version : "",
+            summary: buildImportedSummary("SARIF", normalizedFindings),
+            viewer_import: buildViewerImportMetadata("SARIF", {
+              imported: true,
+              tools: toolList.length ? toolList : ["SARIF"],
+              accessMapSupported: hasKingfisherSarif || accessMap.length > 0,
+              validateCommandSupported: hasKingfisherSarif || hasCommands,
+              revokeCommandSupported: hasKingfisherSarif || hasCommands,
+              notes,
+            }),
+          },
+        },
       };
     }
 
@@ -3481,7 +4026,7 @@
           }
           const fmt = detectReportFormat(entry);
           entryFormats.push(fmt);
-          if (fmt === "gitleaks" || fmt === "trufflehog") {
+          if (fmt === "gitleaks" || fmt === "trufflehog" || fmt === "sarif") {
             hasImported = true;
           }
         }
@@ -3498,6 +4043,8 @@
             partial = normalizeImportedPayload(entry, "TruffleHog");
           } else if (fmt === "gitleaks") {
             partial = normalizeImportedPayload(entry, "Gitleaks");
+          } else if (fmt === "sarif") {
+            partial = normalizeSarifPayload(entry);
           } else {
             partial = normalizeKingfisherPayload(entry);
           }
@@ -3514,6 +4061,9 @@
       }
       if (format === "gitleaks") {
         return normalizeImportedPayload(payload, "Gitleaks");
+      }
+      if (format === "sarif") {
+        return normalizeSarifPayload(payload);
       }
       return normalizeKingfisherPayload(payload);
     }
@@ -3545,11 +4095,11 @@
     function processFiles(files, { append = false } = {}) {
       const validFiles = files.filter((f) => {
         const name = f.name.toLowerCase();
-        return name.endsWith(".json") || name.endsWith(".jsonl");
+        return name.endsWith(".json") || name.endsWith(".jsonl") || name.endsWith(".sarif");
       });
 
       if (validFiles.length === 0) {
-        errorMsg.textContent = "No JSON or JSONL files found in the selection.";
+        errorMsg.textContent = "No JSON, JSONL, or SARIF files found in the selection.";
         errorMsg.classList.remove("hidden");
         return;
       }
@@ -3639,7 +4189,8 @@
       rawData = null;
       currentDetailFinding = null;
       scanMetadata = {};
-      duplicatesRemoved = { kingfisher: 0, trufflehog: 0, gitleaks: 0, total: 0 };
+      selectedAccessMapNode = null;
+      duplicatesRemoved = { kingfisher: 0, sarif: 0, trufflehog: 0, gitleaks: 0, total: 0 };
 
       currentFilter = "";
       validationFilter = "all";
@@ -3657,6 +4208,7 @@
       rowsSelect.value = "10";
       treeSearch.value = "";
       if (detectorBreakdownActiveOnlyToggle) detectorBreakdownActiveOnlyToggle.checked = false;
+      setAccessMapViewMode("map");
 
       setAccessMapCollapsed(true, { auto: true });
       if (amToggle) amToggle.disabled = true;
@@ -3716,7 +4268,7 @@
       const dedupDisabledMulti = isDedupDisabled();
       let dedupResultMulti;
       if (dedupDisabledMulti) {
-        dedupResultMulti = { findings: nextFindings.slice(), dropped: { kingfisher: 0, trufflehog: 0, gitleaks: 0, total: 0 } };
+        dedupResultMulti = { findings: nextFindings.slice(), dropped: { kingfisher: 0, sarif: 0, trufflehog: 0, gitleaks: 0, total: 0 } };
       } else {
         dedupResultMulti = deduplicateFindings(nextFindings);
       }
@@ -3741,7 +4293,7 @@
       const dedupDisabledSingle = isDedupDisabled();
       let dedupResultSingle;
       if (dedupDisabledSingle) {
-        dedupResultSingle = { findings: f.slice(), dropped: { kingfisher: 0, trufflehog: 0, gitleaks: 0, total: 0 } };
+        dedupResultSingle = { findings: f.slice(), dropped: { kingfisher: 0, sarif: 0, trufflehog: 0, gitleaks: 0, total: 0 } };
       } else {
         dedupResultSingle = deduplicateFindings(f);
       }
@@ -3786,7 +4338,7 @@
     function deduplicateFindings(list) {
       const seen = new Set();
       const result = [];
-      const dropped = { kingfisher: 0, trufflehog: 0, gitleaks: 0, total: 0 };
+      const dropped = { kingfisher: 0, sarif: 0, trufflehog: 0, gitleaks: 0, total: 0 };
       for (const f of list) {
         const fp = f.finding && f.finding.fingerprint ? f.finding.fingerprint : "";
         if (fp && seen.has(fp)) {
@@ -3807,7 +4359,7 @@
     }
 
     // Two paths match if they're equal, or one is a path-suffix of the other.
-    // Handles Kingfisher absolute filesystem paths vs TruffleHog/Gitleaks
+    // Handles Kingfisher absolute filesystem paths vs imported repo-relative
     // repo-relative paths for the same file.
     function pathsCompatible(a, b) {
       if (!a || !b) return false;
@@ -3824,7 +4376,10 @@
       const byCommitLine = new Map();
       for (const f of findingList) {
         if (!f || !f.finding) continue;
-        if (f.finding.viewer_import) continue;
+        const importInfo = f.finding.viewer_import && typeof f.finding.viewer_import === "object"
+          ? f.finding.viewer_import
+          : null;
+        if (importInfo && !importInfo.kingfisher_native) continue;
         const fg = f.finding;
         const path = normalizePathForMatch(fg.path);
         const line = fg.line != null ? String(fg.line) : "";
@@ -3842,6 +4397,7 @@
       }
       for (const f of findingList) {
         if (!f || !f.finding || !f.finding.viewer_import) continue;
+        if (f.finding.viewer_import.kingfisher_native) continue;
         const fg = f.finding;
         const path = normalizePathForMatch(fg.path);
         const line = fg.line != null ? String(fg.line) : "";
@@ -3934,7 +4490,7 @@
     }
 
     function getAccessMapEmptyMessage() {
-      if (scanMetadata.imported) {
+      if (scanMetadata.imported && (!scanMetadata.capabilities || !scanMetadata.capabilities.accessMapSupported)) {
         return "Imported reports do not include Kingfisher access-map data. Re-scan with <code>kingfisher scan --access-map</code> for blast-radius mapping.";
       }
       return "No Access Map entries in this report. Run a scan with <code>--access-map</code> to map credential blast radius.";
@@ -4159,12 +4715,14 @@
         else enrichedCard.classList.add("hidden");
       }
 
-      const dr = duplicatesRemoved || { total: 0, kingfisher: 0, trufflehog: 0, gitleaks: 0 };
+      const dr = duplicatesRemoved || { total: 0, kingfisher: 0, sarif: 0, trufflehog: 0, gitleaks: 0 };
       const dedupPanel = document.getElementById("dedup-panel");
       const kfCount = document.getElementById("dedup-count-kingfisher");
+      const sarifCount = document.getElementById("dedup-count-sarif");
       const thCount = document.getElementById("dedup-count-trufflehog");
       const glCount = document.getElementById("dedup-count-gitleaks");
       if (kfCount) kfCount.textContent = (dr.kingfisher || 0).toLocaleString();
+      if (sarifCount) sarifCount.textContent = (dr.sarif || 0).toLocaleString();
       if (thCount) thCount.textContent = (dr.trufflehog || 0).toLocaleString();
       if (glCount) glCount.textContent = (dr.gitleaks || 0).toLocaleString();
       if (dedupPanel) {
@@ -4186,6 +4744,10 @@
       const sourceTool = importInfo && importInfo.source_tool
         ? String(importInfo.source_tool).trim().toLowerCase()
         : "";
+      const sourceFormat = importInfo && importInfo.source_format
+        ? String(importInfo.source_format).trim().toLowerCase()
+        : "";
+      if (sourceFormat === "sarif" || sourceTool.includes("sarif")) return "sarif";
       if (sourceTool === "gitleaks") return "gitleaks";
       if (sourceTool === "trufflehog") return "trufflehog";
       return "kingfisher";
@@ -4345,7 +4907,7 @@
     }
 
     function calculateSourceCounts(list = findings) {
-      const counts = { kingfisher: 0, gitleaks: 0, trufflehog: 0 };
+      const counts = { kingfisher: 0, sarif: 0, gitleaks: 0, trufflehog: 0 };
       (list || []).forEach((f) => {
         const finding = f && f.finding ? f.finding : {};
         const source = getFindingSourceTool(finding);
@@ -4479,7 +5041,7 @@
         detectorCounts.set(label, (detectorCounts.get(label) || 0) + 1);
       });
 
-      return ["kingfisher", "gitleaks", "trufflehog"]
+      return ["kingfisher", "sarif", "gitleaks", "trufflehog"]
         .filter((source) => groupedBySource.has(source))
         .map((source) => {
           const countsMap = groupedBySource.get(source);
@@ -4531,12 +5093,14 @@
     }
 
     function getSourceBadgeClass(source) {
+      if (source === "sarif") return "badge-github";
       if (source === "gitleaks") return "badge-github";
       if (source === "trufflehog") return "badge-gcp";
       return "badge-aws";
     }
 
     function getSourceDisplayName(source) {
+      if (source === "sarif") return "SARIF";
       if (source === "gitleaks") return "Gitleaks";
       if (source === "trufflehog") return "TruffleHog";
       return "Kingfisher";
@@ -4642,6 +5206,7 @@
     function renderSourceChart(counts) {
       const dataPoints = [
         { key: "kingfisher", label: "Kingfisher", color: "#0e7c56" },
+        { key: "sarif", label: "SARIF", color: "#0891b2" },
         { key: "gitleaks", label: "Gitleaks", color: "#2563eb" },
         { key: "trufflehog", label: "TruffleHog", color: "#7c3aed" },
       ];
@@ -5758,7 +6323,7 @@
       const isActive = normalizedStatus === "active";
 
       if (!accessEntries || accessEntries.length === 0) {
-        if (importInfo && scanMetadata.imported) {
+        if (importInfo && scanMetadata.imported && (!scanMetadata.capabilities || !scanMetadata.capabilities.accessMapSupported)) {
           return {
             level: isActive ? "low" : "none",
             text: `This finding was imported from ${escapeHtml(importInfo.source_tool || "an external tool")}. Imported reports do not carry Kingfisher access-map data, so blast radius cannot be derived here. Re-scan with <code>kingfisher scan --access-map</code> for native mapping.`,
@@ -6348,6 +6913,328 @@
       return { ...group, permissions: kept };
     }
 
+    function getAccessMapRiskClass(entry, permissions = null) {
+      const byClass = entry.identity && entry.identity.permissions_by_severity;
+      const summary = permissions
+        ? classifyPermissions(permissions, byClass)
+        : summarizeSeverity(entry);
+      if ((summary.admin || []).length || Number(summary.admin) > 0) return "admin";
+      if ((summary.privilege_escalation || []).length || Number(summary.privilege_escalation) > 0) return "privesc";
+      if ((summary.risky || []).length || Number(summary.risky) > 0) return "risky";
+      return "readonly";
+    }
+
+    function getAccessMapEntryKey(identity, index) {
+      const fingerprint = identity.fingerprint || "";
+      return fingerprint
+        ? "fingerprint:" + fingerprint
+        : [identity.provider || "unknown", identity.account || "unknown", index].join(":");
+    }
+
+    function getGraphResources(entry) {
+      const resources = new Map();
+      (entry.groups || []).forEach((group) => {
+        const names = (group.resources || []).length
+          ? group.resources
+          : ["Project-wide / unscoped access"];
+        names.forEach((name) => {
+          const label = String(name);
+          if (!resources.has(label)) resources.set(label, new Set());
+          (group.permissions || []).forEach((permission) => resources.get(label).add(permission));
+        });
+      });
+      return [...resources.entries()].map(([name, permissions]) => ({
+        name,
+        permissions: [...permissions],
+      }));
+    }
+
+    function truncateGraphLabel(value, maxLength) {
+      const text = String(value || "");
+      if (text.length <= maxLength) return text;
+      return text.slice(0, Math.max(1, maxLength - 1)) + "…";
+    }
+
+    function createSvgElement(name, attributes = {}) {
+      const element = document.createElementNS("http://www.w3.org/2000/svg", name);
+      Object.entries(attributes).forEach(([key, value]) => element.setAttribute(key, String(value)));
+      return element;
+    }
+
+    function appendGraphText(parent, x, y, text, className, attributes = {}) {
+      const element = createSvgElement("text", { x, y, ...attributes });
+      if (className) element.setAttribute("class", className);
+      element.textContent = text;
+      parent.appendChild(element);
+      return element;
+    }
+
+    function activateAccessMapNode(node) {
+      selectedAccessMapNode = node;
+      if (amGraphCanvas) {
+        amGraphCanvas.querySelectorAll(".am-graph-node").forEach((element) => {
+          element.classList.toggle("selected", element.dataset.graphKey === node.graphKey);
+        });
+      }
+      renderAccessMapInspector();
+    }
+
+    function attachGraphNodeInteraction(element, node) {
+      element.dataset.graphKey = node.graphKey;
+      element.setAttribute("role", "button");
+      element.setAttribute("tabindex", "0");
+      element.addEventListener("click", () => activateAccessMapNode(node));
+      element.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        activateAccessMapNode(node);
+      });
+    }
+
+    function renderAccessMapGraph(entries) {
+      if (!amGraphCanvas) return;
+      amGraphCanvas.innerHTML = "";
+
+      if (!entries.length) {
+        amGraphCanvas.innerHTML = `<div style="padding:42px 20px;text-align:center;color:var(--text-muted);font-size:13px;">${getAccessMapEmptyMessage()}</div>`;
+        if (amGraphInspector) {
+          amGraphInspector.innerHTML = '<div class="am-graph__eyebrow">Access path</div><div class="am-graph__title">Nothing to inspect</div><div class="am-graph__subtitle">Adjust the search or critical-only filter to show mapped identities and resources.</div>';
+        }
+        return;
+      }
+
+      const maxIdentities = 18;
+      const maxResourcesPerIdentity = 6;
+      const graphEntries = entries.slice(0, maxIdentities);
+      const rows = [];
+      let y = 54;
+      let previousProvider = "";
+
+      graphEntries.forEach((entry) => {
+        const provider = String(entry.identity.provider || "unknown").toUpperCase();
+        if (provider !== previousProvider) {
+          if (previousProvider) y += 18;
+          rows.push({ kind: "provider", provider, y });
+          y += 25;
+          previousProvider = provider;
+        }
+
+        const allResources = getGraphResources(entry);
+        const shownResources = allResources.slice(0, maxResourcesPerIdentity);
+        if (allResources.length > maxResourcesPerIdentity) {
+          shownResources.push({
+            name: `+${allResources.length - maxResourcesPerIdentity} more resources`,
+            permissions: [],
+            summary: true,
+          });
+        }
+        if (!shownResources.length) {
+          shownResources.push({ name: "Identity metadata only", permissions: [], summary: true });
+        }
+
+        const blockHeight = Math.max(76, shownResources.length * 54);
+        rows.push({
+          kind: "identity",
+          entry,
+          identityY: y + blockHeight / 2,
+          resources: shownResources.map((resource, index) => ({
+            ...resource,
+            y: y + 7 + index * 54,
+          })),
+        });
+        y += blockHeight + 16;
+      });
+
+      const width = 920;
+      const height = Math.max(440, y + 24);
+      const svg = createSvgElement("svg", {
+        viewBox: `0 0 ${width} ${height}`,
+        "aria-label": "Credential access paths",
+      });
+
+      appendGraphText(svg, 40, 26, "IDENTITIES", "am-graph-column-label");
+      appendGraphText(svg, 470, 26, "REACHABLE RESOURCES", "am-graph-column-label");
+
+      rows.forEach((row) => {
+        if (row.kind === "provider") {
+          appendGraphText(svg, 40, row.y, row.provider, "am-graph-provider-label");
+          const line = createSvgElement("line", {
+            x1: 112, y1: row.y - 4, x2: 870, y2: row.y - 4,
+            stroke: "rgba(148, 163, 184, 0.18)",
+          });
+          svg.appendChild(line);
+          return;
+        }
+
+        const entry = row.entry;
+        const identity = entry.identity;
+        const identityRisk = getAccessMapRiskClass(entry);
+        const identityNode = createSvgElement("g", {
+          class: `am-graph-node am-graph-node--${identityRisk}`,
+          transform: `translate(40 ${row.identityY - 32})`,
+        });
+        identityNode.appendChild(createSvgElement("rect", {
+          width: 280, height: 64, rx: 11,
+        }));
+        appendGraphText(identityNode, 14, 24, truncateGraphLabel(identity.account || "(unknown identity)", 36), "", {
+          "font-size": 13, "font-weight": 750,
+        });
+        const identityResourceCount = getGraphResources(entry).length;
+        const identityPermCount = new Set(
+          (entry.groups || []).flatMap((group) => group.permissions || [])
+        ).size;
+        appendGraphText(
+          identityNode,
+          14,
+          45,
+          `${String(identity.provider || "unknown").toUpperCase()} · ${identityResourceCount} resources · ${identityPermCount} permissions`,
+          "am-graph-node__meta"
+        );
+        const identitySelection = {
+          kind: "identity",
+          entryKey: entry.key,
+          graphKey: "identity:" + entry.key,
+        };
+        attachGraphNodeInteraction(identityNode, identitySelection);
+        svg.appendChild(identityNode);
+
+        row.resources.forEach((resource, resourceIndex) => {
+          const resourceRisk = resource.summary
+            ? "readonly"
+            : getAccessMapRiskClass(entry, resource.permissions);
+          const resourceX = 470;
+          const resourceY = resource.y;
+          const edge = createSvgElement("path", {
+            class: `am-graph-edge am-graph-edge--${resourceRisk}`,
+            d: `M 320 ${row.identityY} C 380 ${row.identityY}, 405 ${resourceY + 21}, ${resourceX} ${resourceY + 21}`,
+          });
+          svg.appendChild(edge);
+
+          const resourceNode = createSvgElement("g", {
+            class: `am-graph-node am-graph-node--${resourceRisk}`,
+            transform: `translate(${resourceX} ${resourceY})`,
+          });
+          resourceNode.appendChild(createSvgElement("rect", {
+            width: 390, height: 43, rx: 9,
+          }));
+          appendGraphText(resourceNode, 13, 19, truncateGraphLabel(resource.name, 54), "", {
+            "font-size": 11.5, "font-weight": 700,
+          });
+          appendGraphText(
+            resourceNode,
+            13,
+            34,
+            resource.summary
+              ? "Narrow the filter to explore these resources"
+              : `${resource.permissions.length} permission${resource.permissions.length !== 1 ? "s" : ""}`,
+            "am-graph-node__meta"
+          );
+
+          const resourceSelection = {
+            kind: resource.summary ? "summary" : "resource",
+            entryKey: entry.key,
+            resourceName: resource.name,
+            permissions: resource.permissions,
+            graphKey: `resource:${entry.key}:${resourceIndex}`,
+          };
+          attachGraphNodeInteraction(resourceNode, resourceSelection);
+          svg.appendChild(resourceNode);
+        });
+      });
+
+      amGraphCanvas.appendChild(svg);
+      if (entries.length > maxIdentities) {
+        const notice = document.createElement("div");
+        notice.className = "am-graph__notice";
+        notice.textContent = `Showing ${maxIdentities} of ${entries.length} identities. Use search to narrow the map.`;
+        amGraphCanvas.appendChild(notice);
+      }
+
+      const selectedStillVisible = selectedAccessMapNode
+        && [...svg.querySelectorAll(".am-graph-node")]
+          .some((element) => element.dataset.graphKey === selectedAccessMapNode.graphKey);
+      if (!selectedStillVisible) {
+        selectedAccessMapNode = {
+          kind: "identity",
+          entryKey: graphEntries[0].key,
+          graphKey: "identity:" + graphEntries[0].key,
+        };
+      }
+      activateAccessMapNode(selectedAccessMapNode);
+    }
+
+    function renderAccessMapInspector() {
+      if (!amGraphInspector) return;
+      const selection = selectedAccessMapNode;
+      const entry = selection
+        ? visibleAccessMapView.find((candidate) => candidate.key === selection.entryKey)
+        : null;
+      if (!entry) {
+        amGraphInspector.innerHTML = '<div class="am-graph__eyebrow">Access path</div><div class="am-graph__title">Select a node</div><div class="am-graph__subtitle">Choose an identity or resource to inspect its effective reach.</div>';
+        return;
+      }
+
+      const identity = entry.identity;
+      const isResource = selection.kind === "resource";
+      const permissions = isResource
+        ? (selection.permissions || [])
+        : [...new Set((entry.groups || []).flatMap((group) => group.permissions || []))];
+      const resourceCount = getGraphResources(entry).length;
+      const riskClass = getAccessMapRiskClass(entry, isResource ? permissions : null);
+      const riskLabels = {
+        admin: "Admin exposure",
+        privesc: "Privilege escalation",
+        risky: "Sensitive access",
+        readonly: "Read-only / informational",
+      };
+      const title = isResource ? selection.resourceName : (identity.account || "(unknown identity)");
+      const subtitle = isResource
+        ? `${identity.account || "(unknown identity)"} · ${String(identity.provider || "unknown").toUpperCase()}`
+        : `${String(identity.provider || "unknown").toUpperCase()} · ${resourceCount} reachable resource${resourceCount !== 1 ? "s" : ""}`;
+      const permissionLimit = 16;
+      const permissionHtml = permissions.slice(0, permissionLimit).map((permission) => {
+        const permissionRisk = getAccessMapRiskClass(entry, [permission]);
+        return `<span class="badge badge-perm badge-perm--${permissionRisk}">${escapeHtml(permission)}</span>`;
+      }).join("");
+      const morePermissions = permissions.length > permissionLimit
+        ? `<div class="am-graph__hint">+${permissions.length - permissionLimit} more permissions. Open Details for the complete list.</div>`
+        : "";
+
+      amGraphInspector.innerHTML = `
+        <div class="am-graph__eyebrow">${isResource ? "Reachable resource" : "Credential identity"}</div>
+        <div class="am-graph__title">${escapeHtml(title)}</div>
+        <div class="am-graph__subtitle">${escapeHtml(subtitle)}</div>
+        <div class="am-graph__section">
+          <span class="rollup-chip rollup-chip--${riskClass}">${escapeHtml(riskLabels[riskClass])}</span>
+          <div class="am-graph__hint">${permissions.length} effective permission${permissions.length !== 1 ? "s" : ""} shown in this access path.</div>
+        </div>
+        <div class="am-graph__section">
+          <div class="am-graph__eyebrow">Permissions</div>
+          <div class="am-graph__permission-list">${permissionHtml || '<span class="am-graph__subtitle">No explicit permissions reported.</span>'}</div>
+          ${morePermissions}
+        </div>
+        <div class="am-graph__section">
+          <button class="btn" id="am-inspector-details" type="button">Open full identity details</button>
+        </div>
+      `;
+
+      const detailsButton = document.getElementById("am-inspector-details");
+      if (detailsButton) {
+        detailsButton.addEventListener("click", () => {
+          setAccessMapViewMode("details");
+          const target = [...document.querySelectorAll("[data-access-map-key]")]
+            .find((element) => element.dataset.accessMapKey === entry.key);
+          if (target) {
+            const body = target.querySelector(".id-card__body");
+            const toggle = target.querySelector(".id-card__toggle");
+            if (body) body.classList.add("open");
+            if (toggle) toggle.textContent = "▼";
+            target.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        });
+      }
+    }
+
     function renderAccessMapTree(filter = "") {
       const list = document.getElementById("am-card-list");
       list.innerHTML = "";
@@ -6364,8 +7251,11 @@
       if (isCriticalOnly()) {
         visible = visible.filter(entryHasCritical);
       }
+      visibleAccessMapView = visible;
+      setAccessMapViewMode(accessMapViewMode);
 
       if (!visible || visible.length === 0) {
+        renderAccessMapGraph([]);
         list.innerHTML =
           `<div style="padding:32px 16px; text-align:center; color:var(--text-muted); font-size:13px;">${getAccessMapEmptyMessage()}</div>`;
         return;
@@ -6395,6 +7285,7 @@
         frag.appendChild(buildProviderSection(prov, entries));
       });
       list.appendChild(frag);
+      renderAccessMapGraph(visible);
     }
 
     function buildProviderSection(provider, entries) {
@@ -6554,6 +7445,7 @@
       // Card container
       const card = document.createElement("div");
       card.className = "id-card";
+      card.dataset.accessMapKey = entry.key || "";
 
       // Header (always visible)
       const header = document.createElement("div");
@@ -6889,7 +7781,7 @@
       if (!accessMap || accessMap.length === 0) return [];
 
       const identities = [];
-      accessMap.forEach((identity) => {
+      accessMap.forEach((identity, identityIndex) => {
         const account = formatIdentityLabel(identity);
         const groups = Array.isArray(identity.groups) ? identity.groups : [];
 
@@ -6927,7 +7819,12 @@
           permissions: group.permissions,
         }));
 
-        identities.push({ identity, groups: viewGroups, identityNameMatches });
+        identities.push({
+          identity,
+          groups: viewGroups,
+          identityNameMatches,
+          key: getAccessMapEntryKey(identity, identityIndex),
+        });
       });
 
       return identities;

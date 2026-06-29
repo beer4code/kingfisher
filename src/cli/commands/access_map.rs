@@ -12,7 +12,7 @@ pub struct AccessMapArgs {
     #[clap(value_parser, value_name = "PROVIDER")]
     pub provider: AccessMapProvider,
 
-    /// Path to a credential artifact (e.g. GCP service account key JSON)
+    /// Path to a credential artifact (for example, a GCP key or Azure credential document)
     #[clap(value_parser, value_name = "CREDENTIAL", required = false)]
     pub credential_path: Option<PathBuf>,
 

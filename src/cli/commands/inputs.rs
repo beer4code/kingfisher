@@ -87,6 +87,14 @@ pub struct InputSpecifierArgs {
     #[arg(long, default_value_t = GitHubRepoType::Source, hide = true)]
     pub github_repo_type: GitHubRepoType,
 
+    /// Scan public GitHub events for these users.
+    #[arg(skip)]
+    pub github_event_user: Vec<String>,
+
+    /// Look back this many hours when scanning public GitHub events.
+    #[arg(skip)]
+    pub github_event_lookback_hours: u64,
+
     // GitLab Options
     /// Scan repositories belonging to the specified GitLab user
     #[arg(long, hide = true)]
@@ -127,11 +135,11 @@ pub struct InputSpecifierArgs {
     #[arg(long, alias = "include-subgroups", hide = true)]
     pub gitlab_include_subgroups: bool,
 
-    /// Scan models, datasets, and Spaces belonging to the specified Hugging Face users
+    /// Scan models, datasets, Spaces, and buckets belonging to the specified Hugging Face users
     #[arg(long = "huggingface-user", hide = true)]
     pub huggingface_user: Vec<String>,
 
-    /// Scan models, datasets, and Spaces belonging to the specified Hugging Face organizations
+    /// Scan models, datasets, Spaces, and buckets belonging to the specified Hugging Face organizations
     #[arg(long = "huggingface-organization", alias = "huggingface-org", hide = true)]
     pub huggingface_organization: Vec<String>,
 
@@ -147,7 +155,11 @@ pub struct InputSpecifierArgs {
     #[arg(long = "huggingface-space", hide = true)]
     pub huggingface_space: Vec<String>,
 
-    /// Skip specific Hugging Face repositories during enumeration (accepts optional prefixes like model:, dataset:, or space:)
+    /// Scan a specific Hugging Face bucket or prefix (owner/name, hf:// URI, or full URL)
+    #[arg(long = "huggingface-bucket", alias = "hf-bucket", hide = true)]
+    pub huggingface_bucket: Vec<String>,
+
+    /// Skip specific Hugging Face resources during enumeration (accepts model:, dataset:, space:, or bucket: prefixes)
     #[arg(long = "huggingface-exclude", value_name = "IDENTIFIER", hide = true)]
     pub huggingface_exclude: Vec<String>,
 
@@ -280,7 +292,7 @@ pub struct InputSpecifierArgs {
     #[arg(long, requires = "confluence_url", hide = true)]
     pub cql: Option<String>,
 
-    /// Slack search query
+    /// Slack search query to apply to messages and files
     #[arg(long, hide = true)]
     pub slack_query: Option<String>,
 
@@ -449,6 +461,7 @@ impl InputSpecifierArgs {
             || !self.github_user.is_empty()
             || !self.github_organization.is_empty()
             || self.all_github_organizations
+            || !self.github_event_user.is_empty()
             || !self.gitlab_user.is_empty()
             || !self.gitlab_group.is_empty()
             || self.all_gitlab_groups
@@ -460,6 +473,7 @@ impl InputSpecifierArgs {
             || !self.huggingface_model.is_empty()
             || !self.huggingface_dataset.is_empty()
             || !self.huggingface_space.is_empty()
+            || !self.huggingface_bucket.is_empty()
             || !self.bitbucket_user.is_empty()
             || !self.bitbucket_workspace.is_empty()
             || !self.bitbucket_project.is_empty()
@@ -654,6 +668,7 @@ impl InputSpecifierArgs {
             || !self.huggingface_model.is_empty()
             || !self.huggingface_dataset.is_empty()
             || !self.huggingface_space.is_empty()
+            || !self.huggingface_bucket.is_empty()
             || !self.huggingface_exclude.is_empty()
     }
 

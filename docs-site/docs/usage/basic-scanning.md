@@ -100,7 +100,7 @@ The HTML audit report is standalone and includes scan metadata designed for evid
 
 Finding a leaked credential is only the first step. The critical question isn't just "Is this a secret?"—it's "What can an attacker do with it?"
 
-Kingfisher's `--access-map` feature transforms secret detection from a simple alert into a comprehensive threat assessment. Instead of leaving you with a cryptic API key, Kingfisher actively authenticates against your cloud provider (AWS, GCP, Azure Storage, Azure DevOps, GitHub, GitLab, Slack, or Microsoft Teams) to map the full extent of the credential's power. 
+Kingfisher's `--access-map` feature transforms secret detection from a simple alert into a comprehensive threat assessment. Instead of leaving you with a cryptic API key, Kingfisher actively authenticates against your cloud provider (AWS, GCP, Azure Storage, Microsoft Entra ID and Graph, Azure RBAC, Azure DevOps, GitHub, GitLab, Slack, or Microsoft Teams) to map the full extent of the credential's power.
 
 * Instant Identity Resolution: Immediately identify who the key belongs to—whether it's a specific IAM user, an assumed role, or a service account.
 * Visualize the Blast Radius: See exactly which resources (S3 buckets, EC2 instances, projects, storage containers) are exposed and at risk.
@@ -119,7 +119,7 @@ Add `--access-map` to enrich TOON, JSON, JSONL, BSON, pretty, and SARIF reports 
 kingfisher view kingfisher.json
 ```
 
-The `view` subcommand starts a server (default port `7890`, bind address `127.0.0.1`) that bundles the HTML, CSS, and JavaScript for the access-map viewer directly into the Kingfisher binary. Provide a JSON or JSONL report to load it automatically and Kingfisher will open your browser, or open the page and upload a report in the browser. If port 7890 is already in use, re-run with `--port <PORT>`. To allow access from Docker or other hosts, use `--address 0.0.0.0`.
+The `view` subcommand starts a server (default port `7890`, bind address `127.0.0.1`) that bundles the HTML, CSS, and JavaScript for the access-map viewer directly into the Kingfisher binary. Provide a JSON, JSONL, or SARIF report to load it automatically and Kingfisher will open your browser, or open the page and upload a report in the browser. If port 7890 is already in use, re-run with `--port <PORT>`. To allow access from Docker or other hosts, use `--address 0.0.0.0`.
 
 You can pass multiple files or a directory to combine reports. Findings are deduplicated by fingerprint. Non-matching files in a directory are silently skipped (no recursion).
 
@@ -127,7 +127,7 @@ You can pass multiple files or a directory to combine reports. Findings are dedu
 # Combine multiple report files
 kingfisher view report1.json report2.jsonl
 
-# Load all JSON/JSONL reports from a directory
+# Load all JSON/JSONL/SARIF reports from a directory
 kingfisher view ./reports/
 ```
 
@@ -135,13 +135,16 @@ The browser-based viewer also supports loading multiple files via drag-and-drop 
 
 #### Report viewer (local and hosted) {#report-viewer-local-and-hosted}
 
-The same viewer that powers `kingfisher view` and `--view-report` also accepts **Gitleaks JSON** and **TruffleHog JSON/JSONL** as imported report formats, and is published in two forms:
+The same viewer that powers `kingfisher view` and `--view-report` also accepts **SARIF 2.1.0**, **Gitleaks JSON**, and **TruffleHog JSON/JSONL** as imported report formats, and is published in two forms:
 
 1. **Local CLI viewer** — bundled into every Kingfisher binary. No network calls, no install step beyond Kingfisher itself.
 
    ```bash
    # Open a Kingfisher scan
    kingfisher view kingfisher.json
+
+   # Open Kingfisher SARIF output
+   kingfisher view kingfisher.sarif
 
    # Open a Gitleaks report
    kingfisher view gitleaks-report.json
@@ -150,9 +153,9 @@ The same viewer that powers `kingfisher view` and `--view-report` also accepts *
    kingfisher view trufflehog-report.jsonl
 
    # Merge multiple reports (deduplicated by fingerprint / secret identity)
-   kingfisher view kingfisher.json gitleaks.json trufflehog.jsonl
+   kingfisher view kingfisher.json kingfisher.sarif gitleaks.json trufflehog.jsonl
 
-   # Or drop a directory of reports in and the viewer will ingest the JSON/JSONL files
+   # Or drop a directory of reports in and the viewer will ingest JSON/JSONL/SARIF files
    kingfisher view ./reports/
    ```
 
@@ -160,24 +163,24 @@ The same viewer that powers `kingfisher view` and `--view-report` also accepts *
 
 2. **Hosted viewer** — [https://mongodb.github.io/kingfisher/viewer/](https://mongodb.github.io/kingfisher/viewer/)
 
-   A static, upload-based copy of the same UI published on GitHub Pages. Drag a Kingfisher, Gitleaks, or TruffleHog report into the page and triage it in your browser. Everything runs client-side — no reports leave your machine. Useful when you want to share a link rather than a binary, or triage a report on a machine that doesn't have Kingfisher installed.
+   A static, upload-based copy of the same UI published on GitHub Pages. Drag a Kingfisher, SARIF, Gitleaks, or TruffleHog report into the page and triage it in your browser. Everything runs client-side — no reports leave your machine. Useful when you want to share a link rather than a binary, or triage a report on a machine that doesn't have Kingfisher installed.
 
 #### Why use a visual viewer / triager for Gitleaks, TruffleHog, and Kingfisher output?
 
-Raw JSON output from Kingfisher, Gitleaks, and TruffleHog is excellent input for CI, ticketing systems, and SIEMs, but it's not how a human makes rotation and risk decisions. The viewer gives security engineers:
+Raw JSON and SARIF output from Kingfisher, Gitleaks, and TruffleHog are excellent input for CI, ticketing systems, and SIEMs, but they're not how a human makes rotation and risk decisions. The viewer gives security engineers:
 
 - **A skimmable overview** — findings are grouped by detector, rule, file, and repository, with counts and validation state, instead of one JSON object per line.
 - **Cross-tool triage in one UI** — import a Gitleaks scan, a TruffleHog scan, and a Kingfisher scan of the same codebase into the same session and look at them side-by-side with deduplication, instead of reconciling three different schemas.
 - **Clear "this is live" signals** — validated Kingfisher findings and TruffleHog-verified findings are surfaced as active credentials so you rotate real keys first; unverified/static matches are marked as not attempted rather than active or inactive.
 - **Fingerprint-aware deduplication** — the same secret appearing across multiple reports, directories, or scan runs collapses to one entry.
-- **Blast-radius context** — when a Kingfisher report was produced with `--access-map`, the viewer renders the identity, permissions, and resources the leaked credential actually reaches, so you can tell apart a test token from a production admin key.
+- **Blast-radius context** — when a Kingfisher report was produced with `--access-map`, the viewer opens an interactive access-map graph and inspector so you can trace the identity, reachable resources, and permission mix without digging through nested JSON.
 - **A shareable, offline-friendly workbench** — runs locally via `kingfisher view` or via the hosted static page; nothing about the report is exfiltrated.
 
 Gitleaks and TruffleHog are great at surfacing candidate matches. Kingfisher's viewer turns their candidates (and its own) into a triageable workflow without changing the scanner you already use.
 
 #### Caveats for imported reports
 
-Imported Gitleaks and TruffleHog reports are display-oriented. They do not carry Kingfisher-native `access_map` data, they cannot be driven by `kingfisher validate` / `revoke`, and their fingerprints use the importer's normalization rather than Kingfisher's native fingerprinting. TruffleHog findings marked as verified are shown as active credentials; all other imported findings are treated as not attempted rather than inactive. For full validation context and blast-radius mapping, re-scan with Kingfisher and add `--access-map` when appropriate.
+Imported Gitleaks, TruffleHog, and generic SARIF reports are display-oriented. Kingfisher-produced SARIF can restore compatible validation status, command, fingerprint, and `access_map` properties when present, but generic SARIF does not carry Kingfisher-native `access_map` data and cannot be driven by `kingfisher validate` / `revoke`. Imported fingerprints use the report's native fingerprint when available, otherwise the viewer synthesizes one from rule, location, and snippet data. TruffleHog findings marked as verified are shown as active credentials; all other imported findings are treated as not attempted rather than inactive. For full validation context and blast-radius mapping, re-scan with Kingfisher and add `--access-map` when appropriate.
 
 ### Pipe any text directly into Kingfisher by passing `-`
 
@@ -333,6 +336,39 @@ Rule:     AWS Secret Access Key (kingfisher.aws.2)
 Result:   ✓ VALID
 Response: arn:aws:iam::123456789012:user/example
 ```
+
+For scans, repeat `--rule` and `--exclude-rule` as needed:
+
+```bash
+kingfisher scan ./repo \
+  --rule kingfisher.github.1 \
+  --rule kingfisher.github.2 \
+  --exclude-rule kingfisher.openai.1 \
+  --exclude-rule kingfisher.openai.2
+```
+
+You can also use family prefixes on the CLI:
+
+```bash
+kingfisher scan ./repo --rule kingfisher.github --exclude-rule kingfisher.openai
+```
+
+The same selectors also work in `kingfisher.yaml` under `rules.enabled` and
+`rules.disabled`:
+
+```yaml
+rules:
+  enabled:
+    - kingfisher.github.1   # include exact rule IDs
+    - kingfisher.github.2
+  disabled:
+    - kingfisher.openai.1   # exclude exact rule IDs
+    - kingfisher.openai.2
+```
+
+Use a prefix like `kingfisher.github` if you want to include or exclude an
+entire family instead of single rules. Wildcards like `kingfisher.g*` are not
+supported.
 
 ### Direct secret revocation with `kingfisher revoke`
 
@@ -694,6 +730,7 @@ kingfisher scan docker some-private-registry.dkr.ecr.us-east-1.amazonaws.com/bas
 kingfisher scan docker private.registry.example.com/my-image:tag
 
 # 4) Scan a Docker image archive created by docker save:
+docker pull ghcr.io/owasp/wrongsecrets/wrongsecrets-master:latest-master
 docker save ghcr.io/owasp/wrongsecrets/wrongsecrets-master:latest-master -o image.tar
 kingfisher scan docker --archive image.tar
 gzip -k image.tar
@@ -809,6 +846,13 @@ kingfisher revoke --rule github \
 > discovered tokens. They are usually the same host, but they're separate
 > flags because some deployments front-load auth (an SSO portal for repo
 > access vs. a direct API endpoint for token validation).
+
+> **Token scoping.** `KF_GITHUB_TOKEN` is installed as a host-scoped,
+> HTTPS-only git credential helper, so it is sent only to `github.com` and
+> to the GHE host(s) you name in `--github-api-url` / `--endpoint github=…`.
+> An untrusted clone target — or a plaintext `http://` remote — never
+> receives the token. The same scoping applies to the GitLab, Gitea, Azure,
+> and Hugging Face clone tokens and their corresponding API-URL flags.
 
 ---
 

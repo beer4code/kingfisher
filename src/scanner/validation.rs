@@ -1156,6 +1156,15 @@ fn maybe_record_access_map(om: &OwnedBlobMatch, collector: Option<&AccessMapColl
                 collector.record_azure(&creds_json, containers_hint, fp.clone());
             }
         }
+        Some(Validation::JWT) => {
+            if om.rule.id() == "kingfisher.azure.10"
+                && let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
+                && !value.is_empty()
+            {
+                let creds_json = serde_json::json!({ "access_token": value }).to_string();
+                collector.record_azure(&creds_json, None, fp.clone());
+            }
+        }
         Some(Validation::Postgres) => {
             if let Some((_, value, ..)) = captures.iter().find(|(name, ..)| name == "TOKEN")
                 && !value.is_empty()
@@ -1204,6 +1213,39 @@ fn maybe_record_access_map(om: &OwnedBlobMatch, collector: Option<&AccessMapColl
 
                 if !token.is_empty() && !organization.is_empty() {
                     collector.record_azure_devops(&token, &organization, fp.clone());
+                }
+            }
+            if matches!(om.rule.id(), "kingfisher.azure.6" | "kingfisher.azure.9") {
+                let client_secret = captures
+                    .iter()
+                    .find(|(name, ..)| name == "TOKEN")
+                    .map(|(_, value, ..)| value.clone())
+                    .unwrap_or_default();
+                let tenant_id = utils::find_closest_variable(
+                    &captures,
+                    client_secret.as_str(),
+                    "TOKEN",
+                    "AZURE_TENANT_ID",
+                )
+                .or_else(|| om.dependent_captures.get("AZURE_TENANT_ID").cloned())
+                .unwrap_or_default();
+                let client_id = utils::find_closest_variable(
+                    &captures,
+                    client_secret.as_str(),
+                    "TOKEN",
+                    "AZURE_CLIENT_ID",
+                )
+                .or_else(|| om.dependent_captures.get("AZURE_CLIENT_ID").cloned())
+                .unwrap_or_default();
+
+                if !tenant_id.is_empty() && !client_id.is_empty() && !client_secret.is_empty() {
+                    let creds_json = serde_json::json!({
+                        "tenant_id": tenant_id,
+                        "client_id": client_id,
+                        "client_secret": client_secret,
+                    })
+                    .to_string();
+                    collector.record_azure(&creds_json, None, fp.clone());
                 }
             }
             if om.rule.id() == "kingfisher.alibabacloud.2" {

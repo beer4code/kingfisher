@@ -108,6 +108,7 @@ async fn test_validation_cache_and_depvars() -> Result<()> {
         rules: RuleSpecifierArgs {
             rules_path: vec![work_dir.path().to_path_buf()],
             rule: vec!["all".into()],
+            exclude_rule: Vec::new(),
             load_builtins: false,
         },
         rule_cache: RuleCacheArgs::default(),
@@ -124,6 +125,8 @@ async fn test_validation_cache_and_depvars() -> Result<()> {
             all_github_organizations: false,
             github_api_url: Url::parse("https://api.github.com/").unwrap(),
             github_repo_type: GitHubRepoType::Source,
+            github_event_user: Vec::new(),
+            github_event_lookback_hours: 24,
 
             // new GitLab defaults
             gitlab_user: Vec::new(),
@@ -139,6 +142,7 @@ async fn test_validation_cache_and_depvars() -> Result<()> {
             huggingface_model: Vec::new(),
             huggingface_dataset: Vec::new(),
             huggingface_space: Vec::new(),
+            huggingface_bucket: Vec::new(),
             huggingface_exclude: Vec::new(),
 
             gitea_user: Vec::new(),

@@ -13,14 +13,14 @@ pub struct HuggingFaceArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum HuggingFaceCommand {
-    /// Interact with Hugging Face repositories
+    /// Interact with Hugging Face repositories and buckets
     #[command(subcommand)]
     Repos(HuggingFaceReposCommand),
 }
 
 #[derive(Subcommand, Debug)]
 pub enum HuggingFaceReposCommand {
-    /// List Hugging Face repositories
+    /// List Hugging Face repositories and buckets
     List(HuggingFaceReposListArgs),
 }
 
@@ -35,11 +35,11 @@ pub struct HuggingFaceReposListArgs {
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct HuggingFaceRepoSpecifiers {
-    /// Models, datasets, and Spaces owned by these users
+    /// Models, datasets, Spaces, and buckets owned by these users
     #[arg(long = "huggingface-user")]
     pub user: Vec<String>,
 
-    /// Models, datasets, and Spaces owned by these organizations
+    /// Models, datasets, Spaces, and buckets owned by these organizations
     #[arg(long = "huggingface-organization", alias = "huggingface-org")]
     pub organization: Vec<String>,
 
@@ -55,7 +55,11 @@ pub struct HuggingFaceRepoSpecifiers {
     #[arg(long = "huggingface-space")]
     pub space: Vec<String>,
 
-    /// Skip specific repositories during enumeration (accepts optional prefixes like model:, dataset:, or space:)
+    /// Specific buckets or prefixes to scan (owner/name, hf:// URI, or full URL)
+    #[arg(long = "huggingface-bucket", visible_alias = "bucket", alias = "hf-bucket")]
+    pub bucket: Vec<String>,
+
+    /// Skip specific resources during enumeration (accepts model:, dataset:, space:, or bucket: prefixes)
     #[arg(long = "huggingface-exclude", value_name = "IDENTIFIER")]
     pub exclude: Vec<String>,
 }
@@ -67,6 +71,7 @@ impl HuggingFaceRepoSpecifiers {
             && self.model.is_empty()
             && self.dataset.is_empty()
             && self.space.is_empty()
+            && self.bucket.is_empty()
     }
 }
 

@@ -474,6 +474,7 @@ fn apply_config(
         }
     }
     scan_args.rules.rules_path.extend(cfg.rules.paths.iter().cloned());
+    scan_args.rules.exclude_rule.extend(cfg.rules.disabled.iter().cloned());
     if let Some(v) = cfg.rules.load_builtins
         && config_wins(scan_matches, "load_builtins")
     {
@@ -821,6 +822,9 @@ fn build_config_yaml(
     if user_set(sub_matches, "rule") {
         rules.enabled = scan_args.rules.rule.clone();
     }
+    if user_set(sub_matches, "exclude_rule") {
+        rules.disabled = scan_args.rules.exclude_rule.clone();
+    }
     if !scan_args.rules.rules_path.is_empty() {
         rules.paths = scan_args.rules.rules_path.clone();
     }
@@ -1117,6 +1121,12 @@ fn describe_scan_target(args: &InputSpecifierArgs) -> Option<String> {
     if !args.git_url.is_empty() {
         return Some(join_brief(&args.git_url, "git URLs"));
     }
+    if !args.github_event_user.is_empty() {
+        return Some(format!(
+            "github public events: {}",
+            join_brief(&args.github_event_user, "github users")
+        ));
+    }
     if !args.github_user.is_empty() {
         return Some(format!("github user: {}", join_brief(&args.github_user, "github users")));
     }
@@ -1135,7 +1145,13 @@ fn describe_scan_target(args: &InputSpecifierArgs) -> Option<String> {
     if !args.gitlab_group.is_empty() {
         return Some(format!("gitlab group: {}", join_brief(&args.gitlab_group, "gitlab groups")));
     }
-    if !args.huggingface_user.is_empty() || !args.huggingface_organization.is_empty() {
+    if !args.huggingface_user.is_empty()
+        || !args.huggingface_organization.is_empty()
+        || !args.huggingface_model.is_empty()
+        || !args.huggingface_dataset.is_empty()
+        || !args.huggingface_space.is_empty()
+        || !args.huggingface_bucket.is_empty()
+    {
         return Some("huggingface".to_string());
     }
     if !args.gitea_user.is_empty() || !args.gitea_organization.is_empty() {
@@ -1561,6 +1577,7 @@ async fn async_main(args: CommandLineArgs, matches: clap::ArgMatches) -> Result<
                                 model: specifiers.model.clone(),
                                 dataset: specifiers.dataset.clone(),
                                 space: specifiers.space.clone(),
+                                bucket: specifiers.bucket.clone(),
                                 exclude: specifiers.exclude.clone(),
                             };
                             let auth = huggingface::AuthConfig::from_env();
@@ -1623,6 +1640,7 @@ fn create_default_scan_args() -> cli::commands::scan::ScanArgs {
         rules: RuleSpecifierArgs {
             rules_path: Vec::new(),
             rule: vec!["all".into()],
+            exclude_rule: Vec::new(),
             load_builtins: true,
         },
         rule_cache: RuleCacheArgs::default(),
@@ -1639,6 +1657,8 @@ fn create_default_scan_args() -> cli::commands::scan::ScanArgs {
             all_github_organizations: false,
             github_api_url: url::Url::parse("https://api.github.com/").unwrap(),
             github_repo_type: GitHubRepoType::Source,
+            github_event_user: Vec::new(),
+            github_event_lookback_hours: 24,
             // new GitLab defaults
             gitlab_user: Vec::new(),
             gitlab_group: Vec::new(),
@@ -1653,6 +1673,7 @@ fn create_default_scan_args() -> cli::commands::scan::ScanArgs {
             huggingface_model: Vec::new(),
             huggingface_dataset: Vec::new(),
             huggingface_space: Vec::new(),
+            huggingface_bucket: Vec::new(),
             huggingface_exclude: Vec::new(),
 
             gitea_user: Vec::new(),
@@ -2228,6 +2249,64 @@ rules:
     }
 
     #[test]
+    fn rules_disabled_is_concatenated_with_cli_exclusions() {
+        let yaml = r#"
+rules:
+  disabled: ["kingfisher.github.1"]
+"#;
+        let cfg = parse_str(yaml).unwrap();
+        let (args, matches) =
+            parse(&["kingfisher", "scan", "--exclude-rule", "kingfisher.openai.1", "."]);
+        let mut global_args = args.global_args.clone();
+        let mut scan_args = into_scan(args);
+        super::apply_config(
+            &mut scan_args,
+            &mut global_args,
+            &cfg,
+            matches.subcommand_matches("scan"),
+        );
+
+        assert_eq!(
+            scan_args.rules.exclude_rule,
+            vec!["kingfisher.openai.1".to_string(), "kingfisher.github.1".to_string()]
+        );
+    }
+
+    #[test]
+    fn cli_rule_and_exclude_rule_flags_are_repeated_and_preserved() {
+        let (args, matches) = parse(&[
+            "kingfisher",
+            "scan",
+            "--rule",
+            "kingfisher.github.1",
+            "--rule",
+            "kingfisher.github.2",
+            "--exclude-rule",
+            "kingfisher.openai.1",
+            "--exclude-rule",
+            "kingfisher.openai.2",
+            ".",
+        ]);
+        let mut global_args = args.global_args.clone();
+        let mut scan_args = into_scan(args);
+        super::apply_config(
+            &mut scan_args,
+            &mut global_args,
+            &kingfisher::cli::config::KingfisherConfig::default(),
+            matches.subcommand_matches("scan"),
+        );
+
+        assert_eq!(
+            scan_args.rules.rule,
+            vec!["kingfisher.github.1".to_string(), "kingfisher.github.2".to_string()]
+        );
+        assert_eq!(
+            scan_args.rules.exclude_rule,
+            vec!["kingfisher.openai.1".to_string(), "kingfisher.openai.2".to_string()]
+        );
+    }
+
+    #[test]
     fn rule_cache_config_and_cli_precedence_respects_opt_out() {
         let cfg = parse_str(
             r#"
@@ -2369,6 +2448,8 @@ alerts:
             "vendor/",
             "--skip-word",
             "EXAMPLE",
+            "--exclude-rule",
+            "kingfisher.github.1",
             "--format",
             "toon",
             "--alert-min-confidence",
@@ -2407,6 +2488,7 @@ alerts:
         assert_eq!(cfg.filters.exclude, vec!["vendor/".to_string()]);
         assert_eq!(cfg.filters.skip_words, vec!["EXAMPLE".to_string()]);
         assert!(cfg.filters.max_file_size_mb.is_none(), "should not emit unset filters");
+        assert_eq!(cfg.rules.disabled, vec!["kingfisher.github.1".to_string()]);
 
         assert!(matches!(cfg.output.format, Some(ConfigReportFormat::Toon)));
         assert!(cfg.output.path.is_none());
