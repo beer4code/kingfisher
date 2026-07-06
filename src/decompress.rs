@@ -382,6 +382,27 @@ fn handle_zip_archive_streaming(
     Ok(CompressedContent::ArchiveFiles(entries_on_disk))
 }
 
+/// Extract in-memory ZIP `buffer` via the disk-streaming extractor.
+///
+/// Used for content-sniffed ZIPs that exceed `MAX_INMEM_ZIP_ARCHIVE_BYTES`, so
+/// they take the streaming path (no total-input cap) rather than the in-memory
+/// extractor. `label_path` is used only to label entries (`label_path!entry`),
+/// keeping report paths consistent with the in-memory branch. Entries are
+/// written under `base_dir`.
+fn extract_zip_bytes_via_streaming(
+    buffer: &[u8],
+    label_path: &Path,
+    base_dir: &Path,
+) -> Result<CompressedContent> {
+    let staged = base_dir.join(format!("{}.zip", Uuid::new_v4()));
+    let mut out = safe_create_for_write(&staged)?;
+    out.write_all(buffer)?;
+    drop(out);
+
+    let mut file = safe_open_for_read(&staged)?;
+    handle_zip_archive_streaming(&mut file, label_path, base_dir)
+}
+
 /// Extract streams from an HWP (Hancom Word Processor) file.
 ///
 /// HWP 5.x uses the Microsoft Compound File Binary (OLE2/CFBF) container.
@@ -682,17 +703,39 @@ fn decompress_once_with_single_stream_cap(
 
     if looks_like_zip(&buffer) {
         let archive_label = path.display().to_string();
-        match extract_zip_archive_in_memory(&buffer, &archive_label) {
-            // Only treat it as an archive if it yielded entries; an empty or
-            // unreadable result falls through to scanning the raw bytes.
-            Ok(entries) if !entries.is_empty() => {
-                return Ok(CompressedContent::Archive(entries));
+        if buffer.len() <= MAX_INMEM_ZIP_ARCHIVE_BYTES {
+            match extract_zip_archive_in_memory(&buffer, &archive_label) {
+                // Only treat it as an archive if it yielded entries; an empty or
+                // unreadable result falls through to scanning the raw bytes.
+                Ok(entries) if !entries.is_empty() => {
+                    return Ok(CompressedContent::Archive(entries));
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::debug!(
+                        "content-sniffed zip extract failed for {archive_label}: {e:#}; scanning raw bytes"
+                    );
+                }
             }
-            Ok(_) => {}
-            Err(e) => {
-                tracing::debug!(
-                    "content-sniffed zip extract failed for {archive_label}: {e:#}; scanning raw bytes"
-                );
+        } else {
+            // Larger than the in-memory cap: stage the bytes and use the
+            // streaming extractor (no total-input cap) instead of dropping to a
+            // raw scan of the compressed bytes.
+            let owned_temp;
+            let base = match base_dir {
+                Some(b) => b,
+                None => {
+                    owned_temp = tempdir()?;
+                    owned_temp.path()
+                }
+            };
+            match extract_zip_bytes_via_streaming(&buffer, path, base) {
+                Ok(content) => return Ok(content),
+                Err(e) => {
+                    tracing::debug!(
+                        "content-sniffed streaming zip extract failed for {archive_label}: {e:#}; scanning raw bytes"
+                    );
+                }
             }
         }
     }
@@ -872,6 +915,40 @@ mod tests {
         match decompress_once(&plan, Some(dir.path()))? {
             CompressedContent::Raw(raw) => assert_eq!(raw, bytes),
             other => panic!("expected Raw for empty zip, got {other:?}"),
+        }
+
+        Ok(())
+    }
+
+    /// The streaming route for large content-sniffed ZIPs (exercised here with a
+    /// small ZIP to avoid a >64 MB fixture) must extract entries to disk and
+    /// label them `label_path!entry`, matching the in-memory branch.
+    #[test]
+    fn streaming_zip_bytes_extracts_and_labels_by_path() -> anyhow::Result<()> {
+        let dir = tempdir()?;
+        let github_pat = "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"; // this is not a real secret
+
+        let mut bytes = Vec::new();
+        {
+            let mut zip = ZipWriter::new(std::io::Cursor::new(&mut bytes));
+            let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+            zip.start_file("tfstate", opts)?;
+            zip.write_all(format!("token={github_pat}\n").as_bytes())?;
+            zip.finish()?;
+        }
+
+        // The label path is logical only; it need not exist on disk.
+        let label = Path::new("tf.plan");
+        match super::extract_zip_bytes_via_streaming(&bytes, label, dir.path())? {
+            CompressedContent::ArchiveFiles(entries) => {
+                let (_, on_disk) = entries
+                    .iter()
+                    .find(|(logical, _)| logical == "tf.plan!tfstate")
+                    .expect("expected tf.plan!tfstate entry");
+                let txt = std::fs::read_to_string(on_disk)?;
+                assert!(txt.contains(github_pat));
+            }
+            other => panic!("expected ArchiveFiles from streaming extract, got {other:?}"),
         }
 
         Ok(())
