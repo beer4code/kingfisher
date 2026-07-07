@@ -717,18 +717,12 @@ fn decompress_once_with_single_stream_cap(
                     );
                 }
             }
-        } else {
+        } else if let Some(base) = base_dir {
             // Larger than the in-memory cap: stage the bytes and use the
             // streaming extractor (no total-input cap) instead of dropping to a
-            // raw scan of the compressed bytes.
-            let owned_temp;
-            let base = match base_dir {
-                Some(b) => b,
-                None => {
-                    owned_temp = tempdir()?;
-                    owned_temp.path()
-                }
-            };
+            // raw scan of the compressed bytes. Only viable when the caller owns
+            // a base dir the extracted files can live in; otherwise fall through
+            // to scanning the raw bytes.
             match extract_zip_bytes_via_streaming(&buffer, path, base) {
                 Ok(content) => return Ok(content),
                 Err(e) => {

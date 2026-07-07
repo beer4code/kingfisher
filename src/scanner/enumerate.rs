@@ -856,11 +856,23 @@ impl<'a> rayon::iter::ParallelIterator for GitRepoResultIter<'a> {
                 // We don't need to keep the raw archive bytes around — its
                 // compressed contents won't produce useful matches anyway.
                 if extract_archives {
+                    // Prefer an appearance whose name is a recognized archive so
+                    // report paths stay stable; fall back to the first appearance
+                    // only when the bytes are a ZIP with no archive extension.
                     let archive_path: Option<String> = md
                         .first_seen
                         .iter()
                         .map(|e| String::from_utf8_lossy(&e.path).to_string())
-                        .find(|p| is_compressed_content(Path::new(p), &data));
+                        .find(|p| is_compressed_file(Path::new(p)))
+                        .or_else(|| {
+                            if looks_like_zip(&data) {
+                                md.first_seen
+                                    .first()
+                                    .map(|e| String::from_utf8_lossy(&e.path).to_string())
+                            } else {
+                                None
+                            }
+                        });
 
                     if let Some(archive_path) = archive_path {
                         match try_extract_git_blob_archive(&archive_path, &data) {
